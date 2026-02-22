@@ -1,269 +1,183 @@
 <!doctype html>
 <html>
 <head>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>SalusMotion_BLE (by SalusMusculus)</title>
-  <style>
-    body{font-family:system-ui,Arial;margin:16px;background:#f6f6f6}
-    h2{margin:0 0 10px 0}
-    .row{display:flex;gap:10px;flex-wrap:wrap}
-    .card{background:#fff;border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 4px 12px rgba(0,0,0,.06)}
-    button{padding:10px 12px;border-radius:12px;border:0;background:#111;color:#fff;font-weight:600}
-    button.secondary{background:#fff;color:#111;border:1px solid #111}
-    button:disabled{opacity:.4}
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap}
-    input{padding:10px;border-radius:12px;border:1px solid #ccc}
-    .grid2{display:grid;grid-template-columns:120px 1fr;gap:8px 10px;font-size:14px}
-    .small{font-size:12px;opacity:.7}
-    .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden}
-    .bar{height:100%;width:0%;background:#111;transition:width .25s ease}
-    .badge{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#eee;display:inline-block}
-  </style>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SalusMotion_BLE</title>
+
+<style>
+body{font-family:system-ui;margin:20px;background:#f5f5f5}
+h2{margin-bottom:15px}
+.card{background:#fff;padding:16px;border-radius:14px;margin-bottom:16px;box-shadow:0 3px 10px rgba(0,0,0,.08)}
+button{padding:10px 14px;border-radius:10px;border:0;background:#111;color:#fff;font-weight:600}
+button.secondary{background:#fff;color:#111;border:1px solid #111}
+button:disabled{opacity:.4}
+select{padding:8px;border-radius:8px}
+.grid{display:grid;grid-template-columns:120px 1fr;gap:8px 10px}
+.progress{height:10px;background:#eee;border-radius:20px;overflow:hidden}
+.bar{height:100%;width:0;background:#111;transition:.3s}
+.badge{padding:4px 10px;border-radius:20px;font-size:12px;background:#eee}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
+th,td{padding:6px;border-bottom:1px solid #eee;text-align:left}
+</style>
 </head>
 <body>
-  <h2>SalusMotion_BLE</h2>
 
-  <div class="row">
-    <button id="btnConnect">Connect</button>
-    <button class="secondary" id="btnMeta" disabled>Meta</button>
-    <button class="secondary" id="btnSync" disabled>Sync sets</button>
+<h2>SalusMotion_BLE</h2>
+
+<div class="card">
+  <button id="btnConnect">Connect</button>
+  <button id="btnSync" disabled>Sync Sets</button>
+</div>
+
+<div class="card">
+  <b>Esercizio</b><br><br>
+  <select id="exerciseSelect"></select>
+  <button class="secondary" id="btnSetEx" disabled>Set Exercise</button>
+</div>
+
+<div class="card">
+  <b>Batteria</b>
+  <div class="progress" style="margin-top:10px"><div id="batBar" class="bar"></div></div>
+  <div class="grid" style="margin-top:10px">
+    <div>Percentuale</div><div id="batPct">-</div>
+    <div>Tensione</div><div id="batVolt">-</div>
+    <div>Stato</div><div id="batState">-</div>
   </div>
+</div>
 
-  <!-- BATTERY -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <b>Battery</b>
-      <span id="batBadge" class="badge">—</span>
-    </div>
-
-    <div style="margin-top:10px" class="progress"><div id="batBar" class="bar"></div></div>
-
-    <div class="grid2" style="margin-top:12px">
-      <div>Carica</div><div id="batPct">—</div>
-      <div>Tensione</div><div id="batV">—</div>
-      <div>Stato</div><div id="batChg">—</div>
-    </div>
-
-    <div class="small" style="margin-top:10px">
-      Nota: su StickC V2 “charging” può essere ambiguo. La tensione è il dato più affidabile.
-    </div>
-
-    <!-- tieni anche la vista raw per debug -->
-    <div style="margin-top:10px">
-      <div class="small">RAW</div>
-      <div class="mono" id="batRaw">-</div>
-    </div>
-  </div>
-
-  <!-- LAST SET (ultimo record ricevuto in sync) -->
-  <div class="card">
-    <b>Last set (ultimo ricevuto)</b>
-    <div class="grid2" style="margin-top:12px">
-      <div>id</div><div id="setId">—</div>
-      <div>exercise</div><div id="setEx">—</div>
-      <div>reps</div><div id="setReps">—</div>
-      <div>quality</div><div id="setQual">—</div>
-      <div>velLoss</div><div id="setVL">—</div>
-      <div>romLoss</div><div id="setRL">—</div>
-      <div>dirty</div><div id="setDirty">—</div>
-      <div>rir_est</div><div id="setRIR">—</div>
-      <div>hit_target</div><div id="setHit">—</div>
-    </div>
-  </div>
-
-  <!-- LOG -->
-  <div class="card">
-    <b>Last messages</b>
-    <div class="mono" id="log">-</div>
-  </div>
-
-  <!-- FEEDBACK -->
-  <div class="card">
-    <b>Feedback (autocal)</b>
-    <div class="row" style="margin-top:10px">
-      <input id="f_actual" type="number" placeholder="actual_reps" value="10">
-      <input id="f_dirty"  type="number" placeholder="dirty" value="2">
-      <input id="f_srom"   type="number" placeholder="srom" value="1">
-      <input id="f_uq"     type="number" placeholder="user_q" value="70">
-    </div>
-    <div style="margin-top:10px" class="row">
-      <button class="secondary" id="btnFeedback" disabled>Send FEEDBACK (autocal)</button>
-    </div>
-    <div class="small" style="margin-top:10px">
-      Suggerimento: fai 1 set, poi Sync, poi FEEDBACK con reps reali → autocal si aggiusta.
-    </div>
-  </div>
+<div class="card">
+  <b>Set sincronizzati</b>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Exercise</th>
+        <th>Reps</th>
+        <th>Quality</th>
+        <th>VelLoss</th>
+        <th>RomLoss</th>
+        <th>Dirty</th>
+      </tr>
+    </thead>
+    <tbody id="setsTable"></tbody>
+  </table>
+</div>
 
 <script>
-const UUID_SERVICE = "b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_TX      = "b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_RX      = "b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_SERVICE="b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 
-let dev, server, svc, chTX, chRX;
-let rxBuf = "";
-let sets = []; // collected set records
-
-const $log = document.getElementById("log");
-
-function logLine(s){
-  $log.textContent = (s + "\n\n" + $log.textContent).slice(0, 5000);
-}
-
-function safeNum(x){
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-
-function battLabelFromVolt(v){
-  const vv = safeNum(v);
-  if(vv === null) return "—";
-  if(vv >= 4.15) return "Piena";
-  if(vv >= 3.95) return "Alta";
-  if(vv >= 3.80) return "Media";
-  if(vv >= 3.65) return "Bassa";
-  return "Critica";
-}
-
-function showBattery(obj){
-  if(!obj || !obj.bat) return;
-  const b = obj.bat;
-
-  // RAW debug
-  document.getElementById("batRaw").textContent =
-    `pct=${b.pct}\nV=${b.v}\ncharging=${b.chg}`;
-
-  const pct = safeNum(b.pct);
-  const v   = safeNum(b.v);
-  const chg = (b.chg === true);
-
-  document.getElementById("batPct").textContent = (pct===null) ? "—" : `${Math.round(pct)}%`;
-  document.getElementById("batV").textContent   = (v===null)   ? "—" : `${v.toFixed(2)} V`;
-  document.getElementById("batChg").textContent = chg ? "⚡ In carica (o completata)" : "🔋 Non in carica";
-
-  // progress bar
-  const bar = document.getElementById("batBar");
-  bar.style.width = (pct===null) ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
-
-  // badge
-  document.getElementById("batBadge").textContent = battLabelFromVolt(v);
-}
-
-function showLastSet(obj){
-  // aggiorna UI ultimo set
-  document.getElementById("setId").textContent = obj.id ?? "—";
-  document.getElementById("setEx").textContent = obj.exercise ?? "—";
-  document.getElementById("setReps").textContent = obj.reps ?? "—";
-  document.getElementById("setQual").textContent = (safeNum(obj.quality)===null) ? "—" : obj.quality.toFixed(1);
-  document.getElementById("setVL").textContent = (safeNum(obj.velLoss)===null) ? "—" : obj.velLoss.toFixed(1) + "%";
-  document.getElementById("setRL").textContent = (safeNum(obj.romLoss)===null) ? "—" : obj.romLoss.toFixed(1) + "%";
-  document.getElementById("setDirty").textContent = (safeNum(obj.dirty)===null) ? "—" : obj.dirty.toFixed(1);
-  document.getElementById("setRIR").textContent = obj.rir_est ?? "—";
-  document.getElementById("setHit").textContent = (obj.hit_target===true) ? "✅" : (obj.hit_target===false ? "❌" : "—");
-}
+let dev,server,svc,chTX,chRX;
+let rxBuf="";
+let exercises=[];
+let sets=[];
 
 async function writeCmd(obj){
-  const s = JSON.stringify(obj);
-  const enc = new TextEncoder();
-  await chRX.writeValue(enc.encode(s));
+  const enc=new TextEncoder();
+  await chRX.writeValue(enc.encode(JSON.stringify(obj)));
+}
+
+function updateBattery(b){
+  if(!b)return;
+  const pct=Number(b.pct||0);
+  const v=Number(b.v||0);
+  const chg=b.chg===true;
+
+  document.getElementById("batPct").textContent=pct+"%";
+  document.getElementById("batVolt").textContent=v.toFixed(2)+" V";
+  document.getElementById("batState").textContent=chg?"⚡ Charging":"Battery mode";
+  document.getElementById("batBar").style.width=pct+"%";
+}
+
+function renderSets(){
+  const tbody=document.getElementById("setsTable");
+  tbody.innerHTML="";
+  sets.sort((a,b)=>a.id-b.id);
+  sets.forEach(s=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`
+      <td>${s.id}</td>
+      <td>${s.exercise}</td>
+      <td>${s.reps}</td>
+      <td>${Number(s.quality).toFixed(1)}</td>
+      <td>${Number(s.velLoss).toFixed(1)}%</td>
+      <td>${Number(s.romLoss).toFixed(1)}%</td>
+      <td>${Number(s.dirty).toFixed(1)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function handleJsonLine(line){
-  line = line.trim();
-  if(!line) return;
+  if(!line.trim())return;
+  const obj=JSON.parse(line);
 
-  try{
-    const obj = JSON.parse(line);
-
-    // battery in hello/meta (e anche in altri msg se presente)
-    if(obj.type === "hello" || obj.type === "meta"){
-      showBattery(obj);
-      logLine(line);
-      return;
+  if(obj.type==="hello"||obj.type==="meta"){
+    updateBattery(obj.bat);
+    if(obj.exercises){
+      exercises=obj.exercises;
+      const sel=document.getElementById("exerciseSelect");
+      sel.innerHTML="";
+      exercises.forEach((ex,i)=>{
+        const opt=document.createElement("option");
+        opt.value=i;
+        opt.textContent=ex;
+        sel.appendChild(opt);
+      });
+      sel.value=obj.exIndex||0;
     }
-    if(obj.bat) showBattery(obj);
+    return;
+  }
 
-    if(obj.type === "done"){
-      logLine(`SYNC DONE: sent=${obj.sent} to=${obj.to}`);
-      return;
-    }
-
-    // set record
-    if(typeof obj.id === "number" && obj.exercise){
-      sets.push(obj);
-      showLastSet(obj);
-      logLine(`SET id=${obj.id} ex=${obj.exercise} reps=${obj.reps} qual=${obj.quality}`);
-      return;
-    }
-
-    logLine(line);
-  }catch(e){
-    // se arriva chunk incompleto, noi comunque bufferizziamo per newline.
-    logLine("JSON parse error: " + line);
+  if(typeof obj.id==="number" && obj.exercise){
+    sets.push(obj);
+    renderSets();
+    return;
   }
 }
 
-function onNotify(ev){
-  const dec = new TextDecoder();
-  const chunk = dec.decode(ev.target.value);
-  rxBuf += chunk;
-
+function onNotify(e){
+  const dec=new TextDecoder();
+  rxBuf+=dec.decode(e.target.value);
   let idx;
-  while((idx = rxBuf.indexOf("\n")) >= 0){
-    const line = rxBuf.slice(0, idx);
-    rxBuf = rxBuf.slice(idx+1);
+  while((idx=rxBuf.indexOf("\n"))>=0){
+    const line=rxBuf.slice(0,idx);
+    rxBuf=rxBuf.slice(idx+1);
     handleJsonLine(line);
   }
 }
 
-document.getElementById("btnConnect").onclick = async ()=>{
-  try{
-    dev = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [UUID_SERVICE]
-    });
+document.getElementById("btnConnect").onclick=async()=>{
+  dev=await navigator.bluetooth.requestDevice({
+    filters:[{services:[UUID_SERVICE]}],
+    optionalServices:[UUID_SERVICE]
+  });
+  server=await dev.gatt.connect();
+  svc=await server.getPrimaryService(UUID_SERVICE);
+  chTX=await svc.getCharacteristic(UUID_TX);
+  chRX=await svc.getCharacteristic(UUID_RX);
+  await chTX.startNotifications();
+  chTX.addEventListener("characteristicvaluechanged",onNotify);
 
-    server = await dev.gatt.connect();
-    svc = await server.getPrimaryService(UUID_SERVICE);
-    chTX = await svc.getCharacteristic(UUID_TX);
-    chRX = await svc.getCharacteristic(UUID_RX);
+  document.getElementById("btnSync").disabled=false;
+  document.getElementById("btnSetEx").disabled=false;
 
-    await chTX.startNotifications();
-    chTX.addEventListener("characteristicvaluechanged", onNotify);
-
-    document.getElementById("btnMeta").disabled = false;
-    document.getElementById("btnSync").disabled = false;
-    document.getElementById("btnFeedback").disabled = false;
-
-    logLine("CONNECTED ✅");
-    await writeCmd({cmd:"HELLO"});
-    await writeCmd({cmd:"META"});
-  }catch(e){
-    logLine("Connect error: " + e);
-  }
-};
-
-document.getElementById("btnMeta").onclick = async ()=>{
-  sets = [];
+  await writeCmd({cmd:"HELLO"});
   await writeCmd({cmd:"META"});
 };
 
-document.getElementById("btnSync").onclick = async ()=>{
-  // in questa versione: sync completo da 0 (semplice e robusto)
-  const from = 0;
-  sets = [];
-  logLine("SYNC starting...");
-  await writeCmd({cmd:"GET_SETS", from});
+document.getElementById("btnSync").onclick=async()=>{
+  sets=[];
+  renderSets();
+  await writeCmd({cmd:"GET_SETS",from:0});
 };
 
-document.getElementById("btnFeedback").onclick = async ()=>{
-  const actual_reps = parseInt(document.getElementById("f_actual").value||"0",10);
-  const dirty = parseInt(document.getElementById("f_dirty").value||"0",10);
-  const srom  = parseInt(document.getElementById("f_srom").value||"0",10);
-  const user_q = parseInt(document.getElementById("f_uq").value||"0",10);
-
-  await writeCmd({cmd:"FEEDBACK", actual_reps, dirty, srom, user_q, autocal:true});
-  logLine("FEEDBACK sent.");
+document.getElementById("btnSetEx").onclick=async()=>{
+  const i=parseInt(document.getElementById("exerciseSelect").value,10);
+  await writeCmd({cmd:"SET_EX",i});
 };
 </script>
+
 </body>
 </html>
