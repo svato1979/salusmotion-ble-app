@@ -1,0 +1,173 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SalusMotion_BLE (by SalusMusculus)</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:16px}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .card{border:1px solid #ddd;border-radius:14px;padding:12px;margin:12px 0}
+    button{padding:10px 12px;border-radius:12px;border:0;background:#111;color:#fff}
+    button.secondary{background:#fff;color:#111;border:1px solid #111}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap}
+    input{padding:10px;border-radius:12px;border:1px solid #ccc}
+  </style>
+</head>
+<body>
+  <h2>SalusMotion_BLE</h2>
+  <div class="row">
+    <button id="btnConnect">Connect</button>
+    <button class="secondary" id="btnMeta" disabled>Meta</button>
+    <button class="secondary" id="btnSync" disabled>Sync sets</button>
+  </div>
+
+  <div class="card">
+    <b>Battery</b>
+    <div class="mono" id="bat">-</div>
+  </div>
+
+  <div class="card">
+    <b>Last messages</b>
+    <div class="mono" id="log">-</div>
+  </div>
+
+  <div class="card">
+    <b>Feedback (autocal)</b>
+    <div class="row">
+      <input id="f_actual" type="number" placeholder="actual_reps" value="10">
+      <input id="f_dirty"  type="number" placeholder="dirty" value="2">
+      <input id="f_srom"   type="number" placeholder="srom" value="1">
+      <input id="f_uq"     type="number" placeholder="user_q" value="70">
+    </div>
+    <div style="margin-top:10px" class="row">
+      <button class="secondary" id="btnFeedback" disabled>Send FEEDBACK (autocal)</button>
+    </div>
+  </div>
+
+<script>
+const UUID_SERVICE = "b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_TX      = "b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_RX      = "b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+
+let dev, server, svc, chTX, chRX;
+let rxBuf = "";
+let sets = []; // collected set records (each is JSON)
+
+const $log = document.getElementById("log");
+const $bat = document.getElementById("bat");
+
+function logLine(s){
+  $log.textContent = (s + "\n\n" + $log.textContent).slice(0, 3000);
+}
+
+function showBattery(obj){
+  if(!obj || !obj.bat) return;
+  const b = obj.bat;
+  $bat.textContent = `pct=${b.pct}%\nV=${b.v}\ncharging=${b.chg}`;
+}
+
+async function writeCmd(obj){
+  const s = JSON.stringify(obj);
+  const enc = new TextEncoder();
+  await chRX.writeValue(enc.encode(s));
+}
+
+function handleJsonLine(line){
+  line = line.trim();
+  if(!line) return;
+  try{
+    const obj = JSON.parse(line);
+    if(obj.type === "hello" || obj.type === "meta"){
+      showBattery(obj);
+      logLine(line);
+      return;
+    }
+    if(obj.bat) showBattery(obj);
+
+    if(obj.type === "done"){
+      logLine(`SYNC DONE: sent=${obj.sent} to=${obj.to}`);
+      // TODO: qui puoi fare grafici con "sets"
+      return;
+    }
+
+    // set records are the json lines from file (they have "id")
+    if(typeof obj.id === "number" && obj.exercise){
+      sets.push(obj);
+      logLine(`SET id=${obj.id} ex=${obj.exercise} reps=${obj.reps} qual=${obj.quality}`);
+      return;
+    }
+
+    logLine(line);
+  }catch(e){
+    // might be chunk mid-json; ignore (we buffer by newline anyway)
+    logLine("JSON parse error: " + line);
+  }
+}
+
+function onNotify(ev){
+  const dec = new TextDecoder();
+  const chunk = dec.decode(ev.target.value);
+  rxBuf += chunk;
+  let idx;
+  while((idx = rxBuf.indexOf("\n")) >= 0){
+    const line = rxBuf.slice(0, idx);
+    rxBuf = rxBuf.slice(idx+1);
+    handleJsonLine(line);
+  }
+}
+
+document.getElementById("btnConnect").onclick = async ()=>{
+  try{
+    dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [UUID_SERVICE] }]
+    });
+    server = await dev.gatt.connect();
+    svc = await server.getPrimaryService(UUID_SERVICE);
+    chTX = await svc.getCharacteristic(UUID_TX);
+    chRX = await svc.getCharacteristic(UUID_RX);
+
+    await chTX.startNotifications();
+    chTX.addEventListener("characteristicvaluechanged", onNotify);
+
+    document.getElementById("btnMeta").disabled = false;
+    document.getElementById("btnSync").disabled = false;
+    document.getElementById("btnFeedback").disabled = false;
+
+    logLine("CONNECTED ✅");
+    await writeCmd({cmd:"HELLO"});
+    await writeCmd({cmd:"META"});
+  }catch(e){
+    logLine("Connect error: " + e);
+  }
+};
+
+document.getElementById("btnMeta").onclick = async ()=>{
+  sets = [];
+  await writeCmd({cmd:"META"});
+};
+
+document.getElementById("btnSync").onclick = async ()=>{
+  // from last received id (simple). In real use you can store last ack in localStorage.
+  let from = -1;
+  if(sets.length){
+    from = sets.reduce((m,x)=>Math.max(m, x.id), 0);
+  }
+  // easiest first time: from 0
+  from = 0;
+  sets = [];
+  logLine("SYNC starting...");
+  await writeCmd({cmd:"GET_SETS", from});
+};
+
+document.getElementById("btnFeedback").onclick = async ()=>{
+  const actual_reps = parseInt(document.getElementById("f_actual").value||"0",10);
+  const dirty = parseInt(document.getElementById("f_dirty").value||"0",10);
+  const srom  = parseInt(document.getElementById("f_srom").value||"0",10);
+  const user_q = parseInt(document.getElementById("f_uq").value||"0",10);
+
+  await writeCmd({cmd:"FEEDBACK", actual_reps, dirty, srom, user_q, autocal:true});
+  logLine("FEEDBACK sent.");
+};
+</script>
+</body>
+</html>
