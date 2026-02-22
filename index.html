@@ -1,196 +1,170 @@
 <!doctype html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>SalusMotion_BLE</title>
-
-<style>
-body{
-  font-family:system-ui,Arial;
-  margin:16px;
-  background:#f6f6f6;
-}
-
-h2{margin-bottom:10px}
-
-.row{display:flex;gap:10px;flex-wrap:wrap}
-
-.card{
-  background:#fff;
-  border-radius:16px;
-  padding:16px;
-  margin:14px 0;
-  box-shadow:0 4px 12px rgba(0,0,0,0.06);
-}
-
-button{
-  padding:10px 14px;
-  border-radius:12px;
-  border:0;
-  background:#111;
-  color:#fff;
-  font-weight:600;
-}
-
-button.secondary{
-  background:#fff;
-  color:#111;
-  border:1px solid #111;
-}
-
-button:disabled{
-  opacity:.4;
-}
-
-.mono{
-  font-family:ui-monospace,Menlo,monospace;
-  white-space:pre-wrap;
-}
-
-.progress{
-  height:14px;
-  background:#eee;
-  border-radius:20px;
-  overflow:hidden;
-}
-
-.progress-bar{
-  height:100%;
-  width:0%;
-  background:#4caf50;
-  transition:width .3s ease;
-}
-
-.grid2{
-  display:grid;
-  grid-template-columns:120px 1fr;
-  row-gap:8px;
-  column-gap:10px;
-  font-size:14px;
-}
-.small{font-size:12px;opacity:.7}
-.badge{
-  padding:4px 10px;
-  border-radius:999px;
-  font-size:12px;
-  font-weight:600;
-}
-.green{background:#e8f5e9;color:#2e7d32}
-.orange{background:#fff3e0;color:#ef6c00}
-.red{background:#ffebee;color:#c62828}
-.gray{background:#eee;color:#555}
-</style>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SalusMotion_BLE (by SalusMusculus)</title>
+  <style>
+    body{font-family:system-ui,Arial;margin:16px;background:#f6f6f6}
+    h2{margin:0 0 10px 0}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .card{background:#fff;border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 4px 12px rgba(0,0,0,.06)}
+    button{padding:10px 12px;border-radius:12px;border:0;background:#111;color:#fff;font-weight:600}
+    button.secondary{background:#fff;color:#111;border:1px solid #111}
+    button:disabled{opacity:.4}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; white-space:pre-wrap}
+    input{padding:10px;border-radius:12px;border:1px solid #ccc}
+    .grid2{display:grid;grid-template-columns:120px 1fr;gap:8px 10px;font-size:14px}
+    .small{font-size:12px;opacity:.7}
+    .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden}
+    .bar{height:100%;width:0%;background:#111;transition:width .25s ease}
+    .badge{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#eee;display:inline-block}
+  </style>
 </head>
-
 <body>
+  <h2>SalusMotion_BLE</h2>
 
-<h2>SalusMotion_BLE</h2>
-
-<div class="row">
-  <button id="btnConnect">Connect</button>
-  <button class="secondary" id="btnMeta" disabled>Meta</button>
-  <button class="secondary" id="btnSync" disabled>Sync Sets</button>
-</div>
-
-<!-- BATTERY CARD -->
-<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center">
-    <b>Battery</b>
-    <span id="batBadge" class="badge gray">—</span>
+  <div class="row">
+    <button id="btnConnect">Connect</button>
+    <button class="secondary" id="btnMeta" disabled>Meta</button>
+    <button class="secondary" id="btnSync" disabled>Sync sets</button>
   </div>
 
-  <div style="margin-top:12px" class="progress">
-    <div id="batBar" class="progress-bar"></div>
+  <!-- BATTERY -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b>Battery</b>
+      <span id="batBadge" class="badge">—</span>
+    </div>
+
+    <div style="margin-top:10px" class="progress"><div id="batBar" class="bar"></div></div>
+
+    <div class="grid2" style="margin-top:12px">
+      <div>Carica</div><div id="batPct">—</div>
+      <div>Tensione</div><div id="batV">—</div>
+      <div>Stato</div><div id="batChg">—</div>
+    </div>
+
+    <div class="small" style="margin-top:10px">
+      Nota: su StickC V2 “charging” può essere ambiguo. La tensione è il dato più affidabile.
+    </div>
+
+    <!-- tieni anche la vista raw per debug -->
+    <div style="margin-top:10px">
+      <div class="small">RAW</div>
+      <div class="mono" id="batRaw">-</div>
+    </div>
   </div>
 
-  <div class="grid2" style="margin-top:12px">
-    <div>Percentuale</div>
-    <div id="batPct">—</div>
-
-    <div>Tensione</div>
-    <div id="batVolt">—</div>
-
-    <div>Charging</div>
-    <div id="batChg">—</div>
+  <!-- LAST SET (ultimo record ricevuto in sync) -->
+  <div class="card">
+    <b>Last set (ultimo ricevuto)</b>
+    <div class="grid2" style="margin-top:12px">
+      <div>id</div><div id="setId">—</div>
+      <div>exercise</div><div id="setEx">—</div>
+      <div>reps</div><div id="setReps">—</div>
+      <div>quality</div><div id="setQual">—</div>
+      <div>velLoss</div><div id="setVL">—</div>
+      <div>romLoss</div><div id="setRL">—</div>
+      <div>dirty</div><div id="setDirty">—</div>
+      <div>rir_est</div><div id="setRIR">—</div>
+      <div>hit_target</div><div id="setHit">—</div>
+    </div>
   </div>
 
-  <div class="small" style="margin-top:10px">
-    Nota: su StickC V2 "charging" può non essere affidabile. La tensione è il dato più importante.
+  <!-- LOG -->
+  <div class="card">
+    <b>Last messages</b>
+    <div class="mono" id="log">-</div>
   </div>
-</div>
 
-<!-- LAST SET -->
-<div class="card">
-  <b>Last Set</b>
-  <div class="grid2" style="margin-top:12px">
-    <div>Esercizio</div><div id="setEx">—</div>
-    <div>Reps</div><div id="setReps">—</div>
-    <div>Quality</div><div id="setQuality">—</div>
-    <div>VelLoss</div><div id="setVL">—</div>
-    <div>RomLoss</div><div id="setRL">—</div>
-    <div>Dirty</div><div id="setDirty">—</div>
+  <!-- FEEDBACK -->
+  <div class="card">
+    <b>Feedback (autocal)</b>
+    <div class="row" style="margin-top:10px">
+      <input id="f_actual" type="number" placeholder="actual_reps" value="10">
+      <input id="f_dirty"  type="number" placeholder="dirty" value="2">
+      <input id="f_srom"   type="number" placeholder="srom" value="1">
+      <input id="f_uq"     type="number" placeholder="user_q" value="70">
+    </div>
+    <div style="margin-top:10px" class="row">
+      <button class="secondary" id="btnFeedback" disabled>Send FEEDBACK (autocal)</button>
+    </div>
+    <div class="small" style="margin-top:10px">
+      Suggerimento: fai 1 set, poi Sync, poi FEEDBACK con reps reali → autocal si aggiusta.
+    </div>
   </div>
-</div>
-
-<!-- LOG -->
-<div class="card">
-  <b>Log</b>
-  <div class="mono" id="log">-</div>
-</div>
 
 <script>
-
 const UUID_SERVICE = "b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 const UUID_TX      = "b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 const UUID_RX      = "b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 
 let dev, server, svc, chTX, chRX;
 let rxBuf = "";
+let sets = []; // collected set records
 
 const $log = document.getElementById("log");
 
 function logLine(s){
-  $log.textContent = (s + "\n\n" + $log.textContent).slice(0, 4000);
+  $log.textContent = (s + "\n\n" + $log.textContent).slice(0, 5000);
 }
 
-function updateBattery(bat){
-  if(!bat) return;
+function safeNum(x){
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
+}
 
-  const pct = Number(bat.pct ?? 0);
-  const v   = Number(bat.v ?? 0);
-  const chg = bat.chg === true;
+function battLabelFromVolt(v){
+  const vv = safeNum(v);
+  if(vv === null) return "—";
+  if(vv >= 4.15) return "Piena";
+  if(vv >= 3.95) return "Alta";
+  if(vv >= 3.80) return "Media";
+  if(vv >= 3.65) return "Bassa";
+  return "Critica";
+}
 
-  document.getElementById("batPct").textContent = pct + "%";
-  document.getElementById("batVolt").textContent = v.toFixed(2) + " V";
-  document.getElementById("batChg").textContent = chg ? "⚡ In carica" : "Non in carica";
+function showBattery(obj){
+  if(!obj || !obj.bat) return;
+  const b = obj.bat;
 
+  // RAW debug
+  document.getElementById("batRaw").textContent =
+    `pct=${b.pct}\nV=${b.v}\ncharging=${b.chg}`;
+
+  const pct = safeNum(b.pct);
+  const v   = safeNum(b.v);
+  const chg = (b.chg === true);
+
+  document.getElementById("batPct").textContent = (pct===null) ? "—" : `${Math.round(pct)}%`;
+  document.getElementById("batV").textContent   = (v===null)   ? "—" : `${v.toFixed(2)} V`;
+  document.getElementById("batChg").textContent = chg ? "⚡ In carica (o completata)" : "🔋 Non in carica";
+
+  // progress bar
   const bar = document.getElementById("batBar");
-  bar.style.width = pct + "%";
+  bar.style.width = (pct===null) ? "0%" : `${Math.max(0, Math.min(100, pct))}%`;
 
-  const badge = document.getElementById("batBadge");
-
-  if(v >= 4.15){
-    badge.textContent = "Piena";
-    badge.className = "badge green";
-  }else if(v >= 3.9){
-    badge.textContent = "Buona";
-    badge.className = "badge green";
-  }else if(v >= 3.7){
-    badge.textContent = "Media";
-    badge.className = "badge orange";
-  }else{
-    badge.textContent = "Bassa";
-    badge.className = "badge red";
-  }
+  // badge
+  document.getElementById("batBadge").textContent = battLabelFromVolt(v);
 }
 
-function updateSet(obj){
-  document.getElementById("setEx").textContent = obj.exercise ?? "-";
-  document.getElementById("setReps").textContent = obj.reps ?? "-";
-  document.getElementById("setQuality").textContent = obj.quality?.toFixed(1) ?? "-";
-  document.getElementById("setVL").textContent = obj.velLoss?.toFixed(1) + "%" ?? "-";
-  document.getElementById("setRL").textContent = obj.romLoss?.toFixed(1) + "%" ?? "-";
-  document.getElementById("setDirty").textContent = obj.dirty?.toFixed(1) ?? "-";
+function showLastSet(obj){
+  // aggiorna UI ultimo set
+  document.getElementById("setId").textContent = obj.id ?? "—";
+  document.getElementById("setEx").textContent = obj.exercise ?? "—";
+  document.getElementById("setReps").textContent = obj.reps ?? "—";
+  document.getElementById("setQual").textContent = (safeNum(obj.quality)===null) ? "—" : obj.quality.toFixed(1);
+  document.getElementById("setVL").textContent = (safeNum(obj.velLoss)===null) ? "—" : obj.velLoss.toFixed(1) + "%";
+  document.getElementById("setRL").textContent = (safeNum(obj.romLoss)===null) ? "—" : obj.romLoss.toFixed(1) + "%";
+  document.getElementById("setDirty").textContent = (safeNum(obj.dirty)===null) ? "—" : obj.dirty.toFixed(1);
+  document.getElementById("setRIR").textContent = obj.rir_est ?? "—";
+  document.getElementById("setHit").textContent = (obj.hit_target===true) ? "✅" : (obj.hit_target===false ? "❌" : "—");
+}
+
+async function writeCmd(obj){
+  const s = JSON.stringify(obj);
+  const enc = new TextEncoder();
+  await chRX.writeValue(enc.encode(s));
 }
 
 function handleJsonLine(line){
@@ -200,16 +174,31 @@ function handleJsonLine(line){
   try{
     const obj = JSON.parse(line);
 
-    if(obj.bat) updateBattery(obj.bat);
+    // battery in hello/meta (e anche in altri msg se presente)
+    if(obj.type === "hello" || obj.type === "meta"){
+      showBattery(obj);
+      logLine(line);
+      return;
+    }
+    if(obj.bat) showBattery(obj);
 
+    if(obj.type === "done"){
+      logLine(`SYNC DONE: sent=${obj.sent} to=${obj.to}`);
+      return;
+    }
+
+    // set record
     if(typeof obj.id === "number" && obj.exercise){
-      updateSet(obj);
+      sets.push(obj);
+      showLastSet(obj);
+      logLine(`SET id=${obj.id} ex=${obj.exercise} reps=${obj.reps} qual=${obj.quality}`);
+      return;
     }
 
     logLine(line);
-
   }catch(e){
-    logLine("Parse error");
+    // se arriva chunk incompleto, noi comunque bufferizziamo per newline.
+    logLine("JSON parse error: " + line);
   }
 }
 
@@ -224,12 +213,6 @@ function onNotify(ev){
     rxBuf = rxBuf.slice(idx+1);
     handleJsonLine(line);
   }
-}
-
-async function writeCmd(obj){
-  const s = JSON.stringify(obj);
-  const enc = new TextEncoder();
-  await chRX.writeValue(enc.encode(s));
 }
 
 document.getElementById("btnConnect").onclick = async ()=>{
@@ -249,26 +232,38 @@ document.getElementById("btnConnect").onclick = async ()=>{
 
     document.getElementById("btnMeta").disabled = false;
     document.getElementById("btnSync").disabled = false;
+    document.getElementById("btnFeedback").disabled = false;
 
     logLine("CONNECTED ✅");
-
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
-
   }catch(e){
     logLine("Connect error: " + e);
   }
 };
 
 document.getElementById("btnMeta").onclick = async ()=>{
+  sets = [];
   await writeCmd({cmd:"META"});
 };
 
 document.getElementById("btnSync").onclick = async ()=>{
-  await writeCmd({cmd:"GET_SETS", from:0});
-  logLine("Sync started...");
+  // in questa versione: sync completo da 0 (semplice e robusto)
+  const from = 0;
+  sets = [];
+  logLine("SYNC starting...");
+  await writeCmd({cmd:"GET_SETS", from});
 };
 
+document.getElementById("btnFeedback").onclick = async ()=>{
+  const actual_reps = parseInt(document.getElementById("f_actual").value||"0",10);
+  const dirty = parseInt(document.getElementById("f_dirty").value||"0",10);
+  const srom  = parseInt(document.getElementById("f_srom").value||"0",10);
+  const user_q = parseInt(document.getElementById("f_uq").value||"0",10);
+
+  await writeCmd({cmd:"FEEDBACK", actual_reps, dirty, srom, user_q, autocal:true});
+  logLine("FEEDBACK sent.");
+};
 </script>
 </body>
 </html>
