@@ -119,7 +119,8 @@ function onNotify(ev){
 document.getElementById("btnConnect").onclick = async ()=>{
   try{
     dev = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [UUID_SERVICE] }]
+      acceptAllDevices: true,
+      optionalServices: ['b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1']
     });
     server = await dev.gatt.connect();
     svc = await server.getPrimaryService(UUID_SERVICE);
