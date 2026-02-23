@@ -94,6 +94,7 @@
     <b>Sets sincronizzati</b>
     <span class="muted" id="setsCount">0</span>
   </div>
+  <div class="muted" id="syncStatus">—</div>
   <table>
     <thead>
       <tr>
@@ -227,7 +228,7 @@ function renderSets(){
   }
 }
 
-// Parser stream JSON: solo su notify
+// stream JSON parser
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -268,11 +269,9 @@ function feedText(str){
 
 function handleObj(obj, raw){
   dbgRX(raw);
-
   if(obj.bat) updateBattery(obj.bat);
 
   if(obj.type==="hello"){
-    // niente
     return;
   }
 
@@ -281,16 +280,24 @@ function handleObj(obj, raw){
     if(obj.exercises) updateExercises(obj.exercises, obj.exIndex);
     if(obj.cal) updateCal(obj.cal);
     if(Number.isInteger(obj.target_rir)) $("rirSelect").value=String(obj.target_rir);
+    $("btnSetEx").disabled=false;
+    $("btnSetRIR").disabled=false;
     return;
   }
 
-  if(obj.type==="done"){
+  if(obj.type==="sync_info"){
+    onSyncInfo(obj);
+    return;
+  }
+
+  if(obj.type==="miss"){
     return;
   }
 
   if(typeof obj.id==="number" && obj.exercise){
     sets.set(obj.id, obj);
     renderSets();
+    onSetArrived(obj.id);
     return;
   }
 }
@@ -306,6 +313,73 @@ function onNotify(ev){
   const dec=new TextDecoder();
   const chunk=dec.decode(ev.target.value);
   feedText(chunk);
+}
+
+// ---------- SYNC A (id-by-id con retry) ----------
+let syncActive=false;
+let syncFirst=0, syncLast=0;
+let syncCurrent=0;
+let pendingId=null;
+let pendingTimer=null;
+
+function clearPending(){
+  if(pendingTimer){ clearTimeout(pendingTimer); pendingTimer=null; }
+  pendingId=null;
+}
+function setSyncStatus(t){ $("syncStatus").textContent=t; }
+
+function scheduleTimeout(id){
+  clearPending();
+  pendingId=id;
+  pendingTimer=setTimeout(async()=>{
+    if(!syncActive) return;
+    await requestSet(id);
+  }, 700);
+}
+
+async function requestSet(id){
+  if(!syncActive) return;
+  setSyncStatus(`SYNC: richiedo ID ${id}...`);
+  scheduleTimeout(id);
+  await writeCmd({cmd:"SYNC_GET", id});
+}
+
+function maybeAdvance(){
+  if(!syncActive) return;
+
+  while(syncCurrent <= syncLast && sets.has(syncCurrent)) syncCurrent++;
+
+  if(syncCurrent > syncLast){
+    syncActive=false;
+    clearPending();
+    setSyncStatus(`SYNC: completato (${sets.size} set)`);
+    return;
+  }
+
+  requestSet(syncCurrent);
+}
+
+function onSyncInfo(obj){
+  syncFirst = Number.isFinite(obj.first_id) ? obj.first_id : 0;
+  syncLast  = Number.isFinite(obj.last_id)  ? obj.last_id  : 0;
+
+  if(obj.count===0 || syncLast < syncFirst){
+    syncActive=false;
+    clearPending();
+    setSyncStatus("SYNC: nessun set sul device");
+    return;
+  }
+
+  syncCurrent = syncFirst;
+  maybeAdvance();
+}
+
+function onSetArrived(id){
+  if(!syncActive) return;
+  if(pendingId === id){
+    clearPending();
+    maybeAdvance();
+  }
 }
 
 $("btnConnect").onclick=async()=>{
@@ -326,21 +400,22 @@ $("btnConnect").onclick=async()=>{
 
   $("btnMeta").disabled=false;
   $("btnSync").disabled=false;
-  $("btnSetEx").disabled=false;
-  $("btnSetRIR").disabled=false;
+
+  // come prima: i pulsanti ci sono, li abilitiamo quando arriva META
+  $("btnSetEx").disabled=true;
+  $("btnSetRIR").disabled=true;
 
   setConn(true);
 
-  // handshake
   await writeCmd({cmd:"HELLO"});
   await writeCmd({cmd:"META"});
 
-  // retry se META non arriva (browser/webble a volte “perde” il primo)
+  // retry META (come prima)
   setTimeout(async()=>{
     if(!metaReceived){
       await writeCmd({cmd:"META"});
     }
-  }, 500);
+  }, 600);
 };
 
 $("btnMeta").onclick=async()=>{ await writeCmd({cmd:"META"}); };
@@ -348,10 +423,12 @@ $("btnMeta").onclick=async()=>{ await writeCmd({cmd:"META"}); };
 $("btnSync").onclick=async()=>{
   sets = new Map();
   renderSets();
-  await writeCmd({cmd:"GET_SETS", from: 0});
+  setSyncStatus("SYNC: avvio...");
+  syncActive=true;
+  clearPending();
+  await writeCmd({cmd:"SYNC_BEGIN"});
 };
 
-// Invii puliti: FW manda già META come risposta, niente doppio META
 $("btnSetEx").onclick=async()=>{
   const i=parseInt($("exSelect").value,10);
   if(Number.isInteger(i)) await writeCmd({cmd:"SET_EX", i});
@@ -361,9 +438,10 @@ $("btnSetRIR").onclick=async()=>{
   if(Number.isInteger(v)) await writeCmd({cmd:"SET_RIR", v});
 };
 
-// init (placeholder)
+// init
 setConn(false);
 renderSets();
+setSyncStatus("—");
 updateExercises(["(in attesa di META...)"], 0);
 </script>
 </body>
