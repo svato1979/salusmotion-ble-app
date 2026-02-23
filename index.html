@@ -45,9 +45,6 @@
       <span class="muted">Debug</span>
     </label>
   </div>
-  <div class="muted" style="margin-top:8px">
-    Il popup mostrerà SOLO device che pubblicizzano il service UUID.
-  </div>
 </div>
 
 <div class="card">
@@ -59,9 +56,6 @@
     <div>Carica</div><div id="batPct">—</div>
     <div>Tensione</div><div id="batV">—</div>
     <div>Stato</div><div id="batChg">—</div>
-  </div>
-  <div class="muted" style="margin-top:10px">
-    Nota: “charging” su StickC V2 può essere ambiguo. La tensione è il dato più affidabile.
   </div>
 </div>
 
@@ -120,7 +114,7 @@
 
 <div class="card hidden" id="debugCard">
   <b>Debug</b>
-  <div class="muted">Mostra raw RX/TX (max 5000 chars).</div>
+  <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
   <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
 </div>
 
@@ -137,6 +131,8 @@ let depth=0;
 let inStr=false;
 let esc=false;
 
+let metaReceived=false;
+
 const $=id=>document.getElementById(id);
 
 function setConn(on){
@@ -149,10 +145,12 @@ $("dbgToggle").addEventListener("change",()=>{
   $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
 });
 
-function dbg(s){
+function dbgLine(prefix, s){
   if(!$("dbgToggle").checked) return;
-  $("dbgLog").textContent=(s+"\n\n"+$("dbgLog").textContent).slice(0,5000);
+  $("dbgLog").textContent=(`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
 }
+const dbgTX = (s)=>dbgLine("TX:", s);
+const dbgRX = (s)=>dbgLine("RX:", s);
 
 function num(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
 function voltFromMaybeMv(v){
@@ -229,7 +227,7 @@ function renderSets(){
   }
 }
 
-// parser JSON (oggetti {...} concatenati in stream)
+// Parser stream JSON: solo su notify
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -262,18 +260,24 @@ function feedText(str){
         const obj=JSON.parse(raw);
         handleObj(obj, raw);
       }catch(e){
-        dbg("PARSE FAIL raw="+raw.slice(0,200));
+        dbgRX("PARSE FAIL raw="+raw.slice(0,200));
       }
     }
   }
 }
 
 function handleObj(obj, raw){
-  dbg("RX: "+raw);
+  dbgRX(raw);
 
   if(obj.bat) updateBattery(obj.bat);
 
-  if(obj.type==="hello" || obj.type==="meta"){
+  if(obj.type==="hello"){
+    // niente
+    return;
+  }
+
+  if(obj.type==="meta"){
+    metaReceived=true;
     if(obj.exercises) updateExercises(obj.exercises, obj.exIndex);
     if(obj.cal) updateCal(obj.cal);
     if(Number.isInteger(obj.target_rir)) $("rirSelect").value=String(obj.target_rir);
@@ -281,7 +285,6 @@ function handleObj(obj, raw){
   }
 
   if(obj.type==="done"){
-    // solo debug
     return;
   }
 
@@ -294,7 +297,7 @@ function handleObj(obj, raw){
 
 async function writeCmd(obj){
   const s=JSON.stringify(obj);
-  dbg("TX: "+s);
+  dbgTX(s);
   const enc=new TextEncoder();
   await chRX.writeValue(enc.encode(s));
 }
@@ -306,6 +309,8 @@ function onNotify(ev){
 }
 
 $("btnConnect").onclick=async()=>{
+  metaReceived=false;
+
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
     optionalServices: [UUID_SERVICE]
@@ -326,8 +331,16 @@ $("btnConnect").onclick=async()=>{
 
   setConn(true);
 
+  // handshake
   await writeCmd({cmd:"HELLO"});
   await writeCmd({cmd:"META"});
+
+  // retry se META non arriva (browser/webble a volte “perde” il primo)
+  setTimeout(async()=>{
+    if(!metaReceived){
+      await writeCmd({cmd:"META"});
+    }
+  }, 500);
 };
 
 $("btnMeta").onclick=async()=>{ await writeCmd({cmd:"META"}); };
@@ -338,7 +351,7 @@ $("btnSync").onclick=async()=>{
   await writeCmd({cmd:"GET_SETS", from: 0});
 };
 
-// ✅ FIX 2: niente META extra (FW manda già META dopo SET_EX/SET_RIR)
+// Invii puliti: FW manda già META come risposta, niente doppio META
 $("btnSetEx").onclick=async()=>{
   const i=parseInt($("exSelect").value,10);
   if(Number.isInteger(i)) await writeCmd({cmd:"SET_EX", i});
@@ -348,10 +361,10 @@ $("btnSetRIR").onclick=async()=>{
   if(Number.isInteger(v)) await writeCmd({cmd:"SET_RIR", v});
 };
 
-// init
+// init (placeholder)
 setConn(false);
 renderSets();
-updateExercises(["(premi Connect)"], 0);
+updateExercises(["(in attesa di META...)"], 0);
 </script>
 </body>
 </html>
