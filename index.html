@@ -132,11 +132,10 @@ const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 let dev,server,svc,chTX,chRX;
 let sets=new Map();
 
-let chunkBuf="";      // raw bytes->string
-let jsonBuf="";       // building a JSON object
-let depth=0;          // brace depth
-let inStr=false;      // inside "..."
-let esc=false;        // escape state
+let jsonBuf="";
+let depth=0;
+let inStr=false;
+let esc=false;
 
 const $=id=>document.getElementById(id);
 
@@ -158,7 +157,7 @@ function dbg(s){
 function num(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
 function voltFromMaybeMv(v){
   const n=num(v); if(n===null) return null;
-  return (n>20)?(n/1000.0):n; // 4254 -> 4.254V
+  return (n>20)?(n/1000.0):n;
 }
 function battLabel(vV){
   if(vV===null) return {t:"—",c:""};
@@ -230,23 +229,21 @@ function renderSets(){
   }
 }
 
-// ✅ parser JSON robusto: ricostruisce oggetti anche se arrivano spezzati / con newline strani
+// parser JSON (oggetti {...} concatenati in stream)
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
 
-    // gestione stringhe
     if(inStr){
       jsonBuf += ch;
       if(esc){ esc=false; continue; }
       if(ch === "\\"){ esc=true; continue; }
       if(ch === "\""){ inStr=false; }
       continue;
-    }else{
+    } else {
       if(ch === "\""){ inStr=true; jsonBuf += ch; continue; }
     }
 
-    // fuori da stringa: ignora whitespace finché non inizia un oggetto
     if(depth===0){
       if(ch !== "{") continue;
       depth=1;
@@ -254,12 +251,10 @@ function feedText(str){
       continue;
     }
 
-    // dentro oggetto
     jsonBuf += ch;
     if(ch === "{") depth++;
     else if(ch === "}") depth--;
 
-    // oggetto completo
     if(depth===0){
       const raw=jsonBuf;
       jsonBuf="";
@@ -285,13 +280,16 @@ function handleObj(obj, raw){
     return;
   }
 
+  if(obj.type==="done"){
+    // solo debug
+    return;
+  }
+
   if(typeof obj.id==="number" && obj.exercise){
     sets.set(obj.id, obj);
     renderSets();
     return;
   }
-
-  // ignora "state", "logged", "done" ecc. (niente messaggi volanti)
 }
 
 async function writeCmd(obj){
@@ -304,13 +302,12 @@ async function writeCmd(obj){
 function onNotify(ev){
   const dec=new TextDecoder();
   const chunk=dec.decode(ev.target.value);
-  chunkBuf += chunk;
-  feedText(chunk); // processa subito
+  feedText(chunk);
 }
 
 $("btnConnect").onclick=async()=>{
   dev = await navigator.bluetooth.requestDevice({
-    filters: [{ services: [UUID_SERVICE] }], // SOLO i tuoi
+    filters: [{ services: [UUID_SERVICE] }],
     optionalServices: [UUID_SERVICE]
   });
 
@@ -341,14 +338,14 @@ $("btnSync").onclick=async()=>{
   await writeCmd({cmd:"GET_SETS", from: 0});
 };
 
+// ✅ FIX 2: niente META extra (FW manda già META dopo SET_EX/SET_RIR)
 $("btnSetEx").onclick=async()=>{
   const i=parseInt($("exSelect").value,10);
-  if(Number.isInteger(i)) { await writeCmd({cmd:"SET_EX", i}); await writeCmd({cmd:"META"}); }
+  if(Number.isInteger(i)) await writeCmd({cmd:"SET_EX", i});
 };
-
 $("btnSetRIR").onclick=async()=>{
   const v=parseInt($("rirSelect").value,10);
-  if(Number.isInteger(v)) { await writeCmd({cmd:"SET_RIR", v}); await writeCmd({cmd:"META"}); }
+  if(Number.isInteger(v)) await writeCmd({cmd:"SET_RIR", v});
 };
 
 // init
