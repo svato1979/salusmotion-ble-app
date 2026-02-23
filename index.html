@@ -379,10 +379,22 @@ function onSyncInfo(obj){
     return;
   }
 
-  // incremental: start from last synced + 1 if possible
   const lastStr = localStorage.getItem("salus_last_id");
   const lastLocal = lastStr ? parseInt(lastStr,10) : NaN;
-  const start = (Number.isFinite(lastLocal) ? Math.max(syncFirst, lastLocal + 1) : syncFirst);
+
+  // ✅ FIX: se il device è stato resettato (last_id più piccolo del tuo lastLocal),
+  // allora resetto anche il localStorage e faccio FULL sync.
+  if (Number.isFinite(lastLocal) && lastLocal > syncLast) {
+    localStorage.removeItem("salus_last_id");
+    sets = new Map();
+    renderSets();
+    setSyncStatus("SYNC: rilevato reset device → full sync...");
+  }
+
+  const lastStr2 = localStorage.getItem("salus_last_id");
+  const lastLocal2 = lastStr2 ? parseInt(lastStr2,10) : NaN;
+
+  const start = (Number.isFinite(lastLocal2) ? Math.max(syncFirst, lastLocal2 + 1) : syncFirst);
 
   if(start > syncLast){
     syncActive=false;
