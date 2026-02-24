@@ -106,6 +106,7 @@
       <tr>
         <th>ID</th><th>Esercizio</th>
         <th class="right">Reps</th>
+        <th class="right">TUT</th>
         <th class="right">Qualità</th>
         <th class="right">VelLoss</th>
         <th class="right">RomLoss</th>
@@ -114,8 +115,7 @@
       </tr>
     </thead>
     <tbody id="setsTbody">
-      <tr><td colspan="8" class="muted">Premi “Sync sets” per caricare i set dal device.</td></tr>
-    </tbody>
+    <tr><td colspan="9" class="muted">Premi “Sync sets” ...</td></tr>    </tbody>
   </table>
 </div>
 
@@ -212,21 +212,43 @@ function renderSets(){
   const arr=[...sets.values()].sort((a,b)=>a.id-b.id);
   $("setsCount").textContent=String(arr.length);
 
+  // helper UI
+  const badge = (q) => {
+    if(q===null) return "";
+    if(q>=80) return "✅";
+    if(q>=60) return "⚠️";
+    return "🛑";
+  };
+  const pctHint = (p) => {
+    if(p===null) return "";
+    if(p>=40) return "🛑";
+    if(p>=25) return "⚠️";
+    return "✅";
+  };
+  const sec = (t) => (t===null ? "" : `${t.toFixed(1)}s`);
+
   if(arr.length===0){
-    tbody.innerHTML=`<tr><td colspan="8" class="muted">Nessun set ricevuto.</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="9" class="muted">Nessun set ricevuto.</td></tr>`;
     return;
   }
+
   tbody.innerHTML="";
   for(const s of arr){
-    const q=num(s.quality), vl=num(s.velLoss), rl=num(s.romLoss), di=num(s.dirty);
+    const q=num(s.quality);
+    const vl=num(s.velLoss);
+    const rl=num(s.romLoss);
+    const di=num(s.dirty);
+    const tut=num(s.tut_s);
+
     const tr=document.createElement("tr");
     tr.innerHTML=`
       <td>${s.id??""}</td>
       <td>${s.exercise??""}</td>
       <td class="right">${s.reps??""}</td>
-      <td class="right">${q===null?"":q.toFixed(1)}</td>
-      <td class="right">${vl===null?"":vl.toFixed(1)}%</td>
-      <td class="right">${rl===null?"":rl.toFixed(1)}%</td>
+      <td class="right">${sec(tut)}</td>
+      <td class="right">${q===null?"":`${badge(q)} ${q.toFixed(1)}`}</td>
+      <td class="right">${vl===null?"":`${pctHint(vl)} ${vl.toFixed(1)}%`}</td>
+      <td class="right">${rl===null?"":`${pctHint(rl)} ${rl.toFixed(1)}%`}</td>
       <td class="right">${di===null?"":di.toFixed(1)}</td>
       <td class="right">${s.rir_est??""}</td>
     `;
