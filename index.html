@@ -19,15 +19,16 @@
     .badge.ok{background:#e8f8ee;color:#16a34a}
     .badge.warn{background:#fff7e6;color:#f59e0b}
     .badge.bad{background:#ffe9e9;color:#dc2626}
-    .grid{display:grid;grid-template-columns:120px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
+    .grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
     .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden;margin-top:10px}
-    .bar{height:100%;width:0%;background:#111;transition:width .25s ease}
+    .bar{height:100%;width:0%;background:#111;transition:width .2s ease}
     table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
     th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
     th{font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.04em}
     .right{text-align:right}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
     .hidden{display:none}
+    .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
   </style>
 </head>
 
@@ -70,6 +71,13 @@
       <button class="secondary" id="btnSetEx" disabled>Invia</button>
     </div>
 
+    <div>Display</div>
+    <div class="row" style="gap:8px">
+      <button class="secondary" id="btnDispOn" disabled>Display ON</button>
+      <button class="secondary" id="btnDispOff" disabled>Display OFF</button>
+      <span class="muted" id="dispState">—</span>
+    </div>
+
     <div>Target RIR</div>
     <div class="row" style="gap:8px">
       <select id="rirSelect">
@@ -85,18 +93,16 @@
 </div>
 
 <div class="card">
-  <b>RAW (LittleFS)</b>
-  <div class="row" style="gap:10px;flex-wrap:wrap">
-    <button class="secondary" id="btnRawInfo" disabled>Sync raw list</button>
-
-    <select id="rawSelect" style="min-width:260px" disabled>
-      <option>(nessun file)</option>
-    </select>
-
-    <button class="secondary" id="btnRawDl" disabled>Download raw</button>
-    <button class="danger" id="btnRawClear" disabled>Clear raw</button>
+  <b>RAW (CSV IMU)</b>
+  <div class="row">
+    <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
+    <select id="rawSelect" style="min-width:280px" disabled></select>
+    <button id="btnRawDl" disabled>Download raw</button>
+    <button class="danger" id="btnRawClear" disabled>Clear raw (ESP32)</button>
+    <span class="pill" id="rawStatus">—</span>
   </div>
-  <div class="muted" id="rawStatus" style="margin-top:10px">—</div>
+  <div class="progress"><div id="rawBar" class="bar"></div></div>
+  <div class="muted" id="rawHint" style="margin-top:8px">Premi “Raw list” per vedere i file salvati.</div>
 </div>
 
 <div class="card">
@@ -149,11 +155,7 @@ const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 let dev,server,svc,chTX,chRX;
 let sets=new Map();
 
-let jsonBuf="";
-let depth=0;
-let inStr=false;
-let esc=false;
-
+let jsonBuf="", depth=0, inStr=false, esc=false;
 let metaReceived=false;
 
 const $=id=>document.getElementById(id);
@@ -272,9 +274,8 @@ function renderSets(){
 }
 
 function setSyncStatus(t){ $("syncStatus").textContent=t; }
-function setRawStatus(t){ $("rawStatus").textContent=t; }
 
-// stream JSON parser
+// ---- JSON stream parser (unchanged) ----
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -313,133 +314,163 @@ function feedText(str){
   }
 }
 
+async function writeCmd(obj){
+  const s=JSON.stringify(obj);
+  dbgTX(s);
+  const enc=new TextEncoder();
+  await chRX.writeValue(enc.encode(s));
+}
+
+function onNotify(ev){
+  const dec=new TextDecoder();
+  const chunk=dec.decode(ev.target.value);
+  feedText(chunk);
+}
+
 // ---------- RAW download state ----------
-let rawFiles = []; // {name,size}
-let rawDlActive = false;
-let rawDlName = "";
-let rawDlChunks = []; // Uint8Array parts
-let rawDlBytes = 0;
-
-function b64ToU8(b64){
+let rawList = [];
+let dl = null; // {name,size,got,parts:Uint8Array[], timer}
+const b64ToBytes = (b64)=>{
   const bin = atob(b64);
-  const u8 = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) u8[i] = bin.charCodeAt(i);
-  return u8;
-}
+  const out = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+};
+function setRawStatus(t){ $("rawStatus").textContent=t; }
+function setRawBar(p){ $("rawBar").style.width = `${Math.max(0,Math.min(100,p))}%`; }
 
-function renderRawList(){
-  const sel = $("rawSelect");
-  sel.innerHTML="";
-  if(!rawFiles.length){
-    const opt=document.createElement("option");
-    opt.textContent="(nessun file)";
-    opt.value="";
-    sel.appendChild(opt);
-    sel.disabled=true;
-    $("btnRawDl").disabled=true;
-    return;
-  }
-  for(const f of rawFiles){
-    const opt=document.createElement("option");
-    opt.value=f.name;
-    opt.textContent=`${f.name} (${f.size} B)`;
-    sel.appendChild(opt);
-  }
-  sel.disabled=false;
-  $("btnRawDl").disabled=false;
+function dlResetUI(){
+  setRawBar(0);
+  setRawStatus("—");
 }
-
-function downloadBlob(name, bytesU8){
-  const blob = new Blob([bytesU8], {type:"text/csv"});
+function dlStartTimeout(){
+  if(!dl) return;
+  clearTimeout(dl.timer);
+  dl.timer = setTimeout(()=>{
+    setRawStatus("Timeout download (riprovare)");
+    dl = null;
+    setRawBar(0);
+  }, 10000);
+}
+function saveBytesAsFile(bytes, filename){
+  const blob = new Blob([bytes], {type:"text/csv"});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = name.split("/").pop() || "raw.csv";
+  a.download = filename.split("/").pop();
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  URL.revokeObjectURL(url);
 }
 
+// ---------- handle incoming objects ----------
 function handleObj(obj, raw){
   dbgRX(raw);
 
   if(obj.bat) updateBattery(obj.bat);
+  if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
+
+  if(obj.type==="disp"){
+    $("dispState").textContent = obj.on ? "ON" : "OFF";
+    return;
+  }
 
   if(obj.type==="meta"){
     metaReceived=true;
     if(obj.exercises) updateExercises(obj.exercises, obj.exIndex);
     if(obj.cal) updateCal(obj.cal);
     if(Number.isInteger(obj.target_rir)) $("rirSelect").value=String(obj.target_rir);
+
     $("btnSetEx").disabled=false;
     $("btnSetRIR").disabled=false;
 
-    // abilito RAW UI dopo connessione
     $("btnRawInfo").disabled=false;
+    $("btnRawDl").disabled=false;
     $("btnRawClear").disabled=false;
 
+    $("btnDispOn").disabled=false;
+    $("btnDispOff").disabled=false;
+
+    if(obj.bat) updateBattery(obj.bat);
     return;
   }
 
-  // ---- RAW_INFO response ----
+  // ----- RAW protocol -----
   if(obj.type==="raw_info"){
-    rawFiles = Array.isArray(obj.files) ? obj.files : [];
-    renderRawList();
-    setRawStatus(`RAW: ${rawFiles.length} file`);
-    return;
-  }
-
-  // ---- RAW chunks ----
-  if(obj.type==="raw_chunk"){
-    if(!rawDlActive) return;
-    if(obj.name !== rawDlName) return;
-
-    if(obj.b64){
-      const part = b64ToU8(obj.b64);
-      rawDlChunks.push(part);
-      rawDlBytes += part.length;
-      setRawStatus(`Download: ${rawDlName} … ${rawDlBytes} bytes`);
-    }
-
-    if(obj.done === true){
-      rawDlActive=false;
-
-      const all = new Uint8Array(rawDlBytes);
-      let off=0;
-      for(const p of rawDlChunks){
-        all.set(p, off);
-        off += p.length;
-      }
-      rawDlChunks=[];
-      rawDlBytes=0;
-
-      setRawStatus(`Download: completato ✅ (${all.length} bytes)`);
-      downloadBlob(rawDlName, all);
-    }
-    return;
-  }
-
-  if(obj.type==="raw_err"){
-    rawDlActive=false;
-    rawDlChunks=[]; rawDlBytes=0;
-    setRawStatus(`RAW err: ${obj.msg||"?"}`);
+    rawList = Array.isArray(obj.files) ? obj.files : [];
+    const sel=$("rawSelect");
+    sel.innerHTML="";
+    rawList.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    rawList.forEach((f,i)=>{
+      const opt=document.createElement("option");
+      opt.value = f.name;
+      opt.textContent = `${f.name} (${Math.round((f.size||0)/1024)} KB)`;
+      sel.appendChild(opt);
+    });
+    sel.disabled = rawList.length===0;
+    setRawStatus(rawList.length?`Trovati ${rawList.length} file`:"Nessun file raw");
+    $("rawHint").textContent = rawList.length ? "Seleziona e premi Download." : "Nessun file. Registra una serie.";
     return;
   }
 
   if(obj.type==="raw_cleared"){
-    rawFiles=[];
-    renderRawList();
-    setRawStatus("RAW: cleared");
+    rawList=[];
+    $("rawSelect").innerHTML="";
+    $("rawSelect").disabled=true;
+    setRawStatus("RAW cancellati su ESP32");
+    setRawBar(0);
     return;
   }
 
-  if(obj.type==="raw_state"){
-    // opzionale: mostra start/stop dal bottone
-    if(obj.on===true) setRawStatus(`Recording ON: ${obj.name||""}`);
-    else setRawStatus(`Recording OFF: ${obj.name||""}`);
+  if(obj.type==="raw_begin"){
+    dl = { name: obj.name, size: obj.size||0, got:0, parts:[], timer:null };
+    setRawStatus("Download...");
+    setRawBar(0);
+    dlStartTimeout();
     return;
   }
 
+  if(obj.type==="raw_chunk"){
+    if(!dl || obj.name !== dl.name) return;
+    if(typeof obj.b64 !== "string") return;
+    const bytes = b64ToBytes(obj.b64);
+    dl.parts.push(bytes);
+    dl.got += bytes.length;
+
+    const pct = dl.size ? (dl.got/dl.size*100) : 0;
+    setRawBar(pct);
+    setRawStatus(dl.size ? `Download ${Math.round(pct)}%` : `Ricevuti ${dl.got}B`);
+    dlStartTimeout();
+    return;
+  }
+
+  if(obj.type==="raw_end"){
+    if(!dl || obj.name !== dl.name) return;
+    clearTimeout(dl.timer);
+
+    // concat
+    let total = 0;
+    for(const p of dl.parts) total += p.length;
+    const out = new Uint8Array(total);
+    let off=0;
+    for(const p of dl.parts){ out.set(p, off); off += p.length; }
+
+    setRawBar(100);
+    setRawStatus("Salvato ✅");
+    saveBytesAsFile(out, dl.name);
+    dl = null;
+    return;
+  }
+
+  if(obj.type==="raw_err"){
+    setRawStatus("Errore RAW: "+(obj.msg||""));
+    setRawBar(0);
+    dl = null;
+    return;
+  }
+
+  // ----- existing sync flow -----
   if(obj.type==="sync_info"){ onSyncInfo(obj); return; }
   if(obj.type==="miss"){ return; }
 
@@ -463,20 +494,7 @@ function handleObj(obj, raw){
   }
 }
 
-async function writeCmd(obj){
-  const s=JSON.stringify(obj);
-  dbgTX(s);
-  const enc=new TextEncoder();
-  await chRX.writeValue(enc.encode(s));
-}
-
-function onNotify(ev){
-  const dec=new TextDecoder();
-  const chunk=dec.decode(ev.target.value);
-  feedText(chunk);
-}
-
-// ---------- SYNC A (id-by-id con retry) ----------
+// ---------- SYNC A (unchanged) ----------
 let syncActive=false;
 let syncFirst=0, syncLast=0;
 let syncCurrent=0;
@@ -487,7 +505,6 @@ function clearPending(){
   if(pendingTimer){ clearTimeout(pendingTimer); pendingTimer=null; }
   pendingId=null;
 }
-
 function scheduleTimeout(id){
   clearPending();
   pendingId=id;
@@ -496,19 +513,15 @@ function scheduleTimeout(id){
     await requestSet(id);
   }, 700);
 }
-
 async function requestSet(id){
   if(!syncActive) return;
   setSyncStatus(`SYNC: richiedo ID ${id}...`);
   scheduleTimeout(id);
   await writeCmd({cmd:"SYNC_GET", id});
 }
-
 function maybeAdvance(){
   if(!syncActive) return;
-
   while(syncCurrent <= syncLast && sets.has(syncCurrent)) syncCurrent++;
-
   if(syncCurrent > syncLast){
     syncActive=false;
     clearPending();
@@ -517,7 +530,6 @@ function maybeAdvance(){
   }
   requestSet(syncCurrent);
 }
-
 function onSyncInfo(obj){
   syncFirst = Number.isFinite(obj.first_id) ? obj.first_id : 0;
   syncLast  = Number.isFinite(obj.last_id)  ? obj.last_id  : 0;
@@ -552,6 +564,7 @@ function onSyncInfo(obj){
   }
 
   syncCurrent = start;
+  syncActive=true;
   maybeAdvance();
 }
 
@@ -559,7 +572,7 @@ function onSyncInfo(obj){
 $("btnConnect").onclick=async()=>{
   metaReceived=false;
   setSyncStatus("—");
-  setRawStatus("—");
+  dlResetUI();
 
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
@@ -577,14 +590,6 @@ $("btnConnect").onclick=async()=>{
   $("btnMeta").disabled=false;
   $("btnSync").disabled=false;
   $("btnReset").disabled=false;
-
-  $("btnSetEx").disabled=true;
-  $("btnSetRIR").disabled=true;
-
-  // RAW buttons si abilitano dopo META (così hai exercises ecc)
-  $("btnRawInfo").disabled=true;
-  $("btnRawDl").disabled=true;
-  $("btnRawClear").disabled=true;
 
   setConn(true);
 
@@ -625,33 +630,33 @@ $("btnSetRIR").onclick=async()=>{
 
 // RAW UI
 $("btnRawInfo").onclick=async()=>{
-  setRawStatus("RAW: richiedo lista...");
+  dlResetUI();
+  setRawStatus("Richiedo lista...");
   await writeCmd({cmd:"RAW_INFO"});
 };
-
 $("btnRawDl").onclick=async()=>{
+  dlResetUI();
   const name = $("rawSelect").value;
-  if(!name) return;
-  rawDlActive=true;
-  rawDlName=name;
-  rawDlChunks=[];
-  rawDlBytes=0;
-  setRawStatus(`Download: avvio ${name}...`);
+  if(!name){ setRawStatus("Seleziona un file"); return; }
+  setRawStatus("Avvio download...");
   await writeCmd({cmd:"RAW_GET", name});
 };
-
 $("btnRawClear").onclick=async()=>{
-  const x = prompt("Scrivi RAW per cancellare TUTTI i raw (/raw/*):");
-  if(x !== "RAW") return;
-  setRawStatus("RAW: clear...");
+  const x = prompt("Scrivi CLEAR per cancellare TUTTI i RAW dal device:");
+  if(x !== "CLEAR") return;
+  dlResetUI();
+  setRawStatus("Cancellazione...");
   await writeCmd({cmd:"RAW_CLEAR"});
 };
+
+// Display toggle
+$("btnDispOn").onclick=async()=>{ $("dispState").textContent="..."; await writeCmd({cmd:"DISP", on:true}); };
+$("btnDispOff").onclick=async()=>{ $("dispState").textContent="..."; await writeCmd({cmd:"DISP", on:false}); };
 
 // init
 setConn(false);
 renderSets();
 setSyncStatus("—");
-setRawStatus("—");
 updateExercises(["(in attesa di META...)"], 0);
 </script>
 </body>
