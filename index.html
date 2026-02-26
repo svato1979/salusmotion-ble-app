@@ -414,14 +414,20 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj.type==="raw_cleared"){
-    rawList=[];
-    $("rawSelect").innerHTML="";
-    $("rawSelect").disabled=true;
-    setRawStatus("RAW cancellati su ESP32");
-    setRawBar(0);
-    return;
-  }
+if(obj.type==="raw_cleared"){
+  rawList=[];
+  $("rawSelect").innerHTML="";
+  $("rawSelect").disabled=true;
+  setRawStatus(`RAW cancellati su ESP32 (${obj.n??0})`);
+  setRawBar(0);
+
+  // refresh automatico per verificare che LittleFS è vuoto
+  setTimeout(async()=>{ 
+    try { await writeCmd({cmd:"RAW_INFO"}); } catch(e) {}
+  }, 300);
+
+  return;
+}
 
   if(obj.type==="raw_begin"){
     dl = { name: obj.name, size: obj.size||0, got:0, parts:[], timer:null };
