@@ -85,6 +85,21 @@
 </div>
 
 <div class="card">
+  <b>RAW (LittleFS)</b>
+  <div class="row" style="gap:10px;flex-wrap:wrap">
+    <button class="secondary" id="btnRawInfo" disabled>Sync raw list</button>
+
+    <select id="rawSelect" style="min-width:260px" disabled>
+      <option>(nessun file)</option>
+    </select>
+
+    <button class="secondary" id="btnRawDl" disabled>Download raw</button>
+    <button class="danger" id="btnRawClear" disabled>Clear raw</button>
+  </div>
+  <div class="muted" id="rawStatus" style="margin-top:10px">—</div>
+</div>
+
+<div class="card">
   <b>Calibrazione (META)</b>
   <div class="grid">
     <div>A_HIGH</div><div id="calAH">—</div>
@@ -115,7 +130,8 @@
       </tr>
     </thead>
     <tbody id="setsTbody">
-    <tr><td colspan="9" class="muted">Premi “Sync sets” ...</td></tr>    </tbody>
+      <tr><td colspan="9" class="muted">Premi “Sync sets” ...</td></tr>
+    </tbody>
   </table>
 </div>
 
@@ -212,7 +228,6 @@ function renderSets(){
   const arr=[...sets.values()].sort((a,b)=>a.id-b.id);
   $("setsCount").textContent=String(arr.length);
 
-  // helper UI
   const badge = (q) => {
     if(q===null) return "";
     if(q>=80) return "✅";
@@ -257,6 +272,7 @@ function renderSets(){
 }
 
 function setSyncStatus(t){ $("syncStatus").textContent=t; }
+function setRawStatus(t){ $("rawStatus").textContent=t; }
 
 // stream JSON parser
 function feedText(str){
@@ -297,6 +313,54 @@ function feedText(str){
   }
 }
 
+// ---------- RAW download state ----------
+let rawFiles = []; // {name,size}
+let rawDlActive = false;
+let rawDlName = "";
+let rawDlChunks = []; // Uint8Array parts
+let rawDlBytes = 0;
+
+function b64ToU8(b64){
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+function renderRawList(){
+  const sel = $("rawSelect");
+  sel.innerHTML="";
+  if(!rawFiles.length){
+    const opt=document.createElement("option");
+    opt.textContent="(nessun file)";
+    opt.value="";
+    sel.appendChild(opt);
+    sel.disabled=true;
+    $("btnRawDl").disabled=true;
+    return;
+  }
+  for(const f of rawFiles){
+    const opt=document.createElement("option");
+    opt.value=f.name;
+    opt.textContent=`${f.name} (${f.size} B)`;
+    sel.appendChild(opt);
+  }
+  sel.disabled=false;
+  $("btnRawDl").disabled=false;
+}
+
+function downloadBlob(name, bytesU8){
+  const blob = new Blob([bytesU8], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name.split("/").pop() || "raw.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
 function handleObj(obj, raw){
   dbgRX(raw);
 
@@ -309,11 +373,75 @@ function handleObj(obj, raw){
     if(Number.isInteger(obj.target_rir)) $("rirSelect").value=String(obj.target_rir);
     $("btnSetEx").disabled=false;
     $("btnSetRIR").disabled=false;
+
+    // abilito RAW UI dopo connessione
+    $("btnRawInfo").disabled=false;
+    $("btnRawClear").disabled=false;
+
+    return;
+  }
+
+  // ---- RAW_INFO response ----
+  if(obj.type==="raw_info"){
+    rawFiles = Array.isArray(obj.files) ? obj.files : [];
+    renderRawList();
+    setRawStatus(`RAW: ${rawFiles.length} file`);
+    return;
+  }
+
+  // ---- RAW chunks ----
+  if(obj.type==="raw_chunk"){
+    if(!rawDlActive) return;
+    if(obj.name !== rawDlName) return;
+
+    if(obj.b64){
+      const part = b64ToU8(obj.b64);
+      rawDlChunks.push(part);
+      rawDlBytes += part.length;
+      setRawStatus(`Download: ${rawDlName} … ${rawDlBytes} bytes`);
+    }
+
+    if(obj.done === true){
+      rawDlActive=false;
+
+      const all = new Uint8Array(rawDlBytes);
+      let off=0;
+      for(const p of rawDlChunks){
+        all.set(p, off);
+        off += p.length;
+      }
+      rawDlChunks=[];
+      rawDlBytes=0;
+
+      setRawStatus(`Download: completato ✅ (${all.length} bytes)`);
+      downloadBlob(rawDlName, all);
+    }
+    return;
+  }
+
+  if(obj.type==="raw_err"){
+    rawDlActive=false;
+    rawDlChunks=[]; rawDlBytes=0;
+    setRawStatus(`RAW err: ${obj.msg||"?"}`);
+    return;
+  }
+
+  if(obj.type==="raw_cleared"){
+    rawFiles=[];
+    renderRawList();
+    setRawStatus("RAW: cleared");
+    return;
+  }
+
+  if(obj.type==="raw_state"){
+    // opzionale: mostra start/stop dal bottone
+    if(obj.on===true) setRawStatus(`Recording ON: ${obj.name||""}`);
+    else setRawStatus(`Recording OFF: ${obj.name||""}`);
     return;
   }
 
   if(obj.type==="sync_info"){ onSyncInfo(obj); return; }
-  if(obj.type==="miss"){ /* retry happens */ return; }
+  if(obj.type==="miss"){ return; }
 
   if(obj.type==="cleared"){
     sets = new Map();
@@ -404,8 +532,6 @@ function onSyncInfo(obj){
   const lastStr = localStorage.getItem("salus_last_id");
   const lastLocal = lastStr ? parseInt(lastStr,10) : NaN;
 
-  // ✅ FIX: se il device è stato resettato (last_id più piccolo del tuo lastLocal),
-  // allora resetto anche il localStorage e faccio FULL sync.
   if (Number.isFinite(lastLocal) && lastLocal > syncLast) {
     localStorage.removeItem("salus_last_id");
     sets = new Map();
@@ -433,6 +559,7 @@ function onSyncInfo(obj){
 $("btnConnect").onclick=async()=>{
   metaReceived=false;
   setSyncStatus("—");
+  setRawStatus("—");
 
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
@@ -453,6 +580,11 @@ $("btnConnect").onclick=async()=>{
 
   $("btnSetEx").disabled=true;
   $("btnSetRIR").disabled=true;
+
+  // RAW buttons si abilitano dopo META (così hai exercises ecc)
+  $("btnRawInfo").disabled=true;
+  $("btnRawDl").disabled=true;
+  $("btnRawClear").disabled=true;
 
   setConn(true);
 
@@ -491,10 +623,35 @@ $("btnSetRIR").onclick=async()=>{
   if(Number.isInteger(v)) await writeCmd({cmd:"SET_RIR", v});
 };
 
+// RAW UI
+$("btnRawInfo").onclick=async()=>{
+  setRawStatus("RAW: richiedo lista...");
+  await writeCmd({cmd:"RAW_INFO"});
+};
+
+$("btnRawDl").onclick=async()=>{
+  const name = $("rawSelect").value;
+  if(!name) return;
+  rawDlActive=true;
+  rawDlName=name;
+  rawDlChunks=[];
+  rawDlBytes=0;
+  setRawStatus(`Download: avvio ${name}...`);
+  await writeCmd({cmd:"RAW_GET", name});
+};
+
+$("btnRawClear").onclick=async()=>{
+  const x = prompt("Scrivi RAW per cancellare TUTTI i raw (/raw/*):");
+  if(x !== "RAW") return;
+  setRawStatus("RAW: clear...");
+  await writeCmd({cmd:"RAW_CLEAR"});
+};
+
 // init
 setConn(false);
 renderSets();
 setSyncStatus("—");
+setRawStatus("—");
 updateExercises(["(in attesa di META...)"], 0);
 </script>
 </body>
