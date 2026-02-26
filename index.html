@@ -400,20 +400,16 @@ const b64ToBytes = (b64)=>{
 function dlStartTimeout(){
   if(!dl) return;
   clearTimeout(dl.timer);
+
+  const base = 15000; // minimo 15s
+  const extra = dl.size ? Math.min(120000, Math.ceil(dl.size / 800) * 1000) : 30000; 
+  const t = Math.max(base, extra);
+
   dl.timer = setTimeout(()=>{
     setRawStatus("Timeout download (riprovare)");
     dl = null;
     setRawBar(0);
-
-    // se stavamo aspettando, fallisci
-    if(waitRawDoneReject){
-      waitRawDoneReject(new Error("timeout"));
-      waitRawDoneResolve = null;
-      waitRawDoneReject  = null;
-    }
-
-    setRawControlsEnabled();
-  }, 12000);
+  }, t);
 }
 
 function saveBytesAsFile(bytes, filename){
