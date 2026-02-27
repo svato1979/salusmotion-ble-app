@@ -23,91 +23,114 @@
     .grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
     .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden;margin-top:10px}
     .bar{height:100%;width:0%;background:#111;transition:width .2s ease}
-    table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
-    th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-    th{font-size:12px;color:var(--muted);font-weight:900;text-transform:uppercase;letter-spacing:.04em}
-    .right{text-align:right}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
     .hidden{display:none}
     .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
   </style>
 </head>
+
 <body>
-<h2>SalusMotion_BLE</h2>
+  <h2>SalusMotion_BLE</h2>
 
-<div class="card">
-  <div class="row">
-    <button id="btnConnect">Connect</button>
-    <button class="secondary" id="btnMeta" disabled>Meta</button>
+  <!-- CONNECT -->
+  <div class="card">
+    <div class="row">
+      <button id="btnConnect">Connect</button>
+      <button class="secondary" id="btnMeta" disabled>Meta</button>
+      <span id="connBadge" class="badge">DISCONNECTED</span>
 
-    <span id="connBadge" class="badge">DISCONNECTED</span>
-
-    <label class="row" style="margin-left:auto;gap:8px">
-      <input id="dbgToggle" type="checkbox">
-      <span class="muted">Debug</span>
-    </label>
+      <label class="row" style="margin-left:auto;gap:8px">
+        <input id="dbgToggle" type="checkbox">
+        <span class="muted">Debug</span>
+      </label>
+    </div>
   </div>
-</div>
 
-<div class="card">
-  <div class="row" style="justify-content:space-between">
-    <b>Batteria</b><span id="batBadge" class="badge">—</span>
-  </div>
-  <div class="progress"><div id="batBar" class="bar"></div></div>
-  <div class="grid">
-    <div>Carica</div><div id="batPct">—</div>
-    <div>Tensione</div><div id="batV">—</div>
-    <div>Stato</div><div id="batChg">—</div>
-  </div>
-</div>
+  <!-- BATTERY -->
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <b>Batteria</b><span id="batBadge" class="badge">—</span>
+    </div>
 
-<div class="card">
-  <b>RAW (CSV IMU)</b>
-  <div class="row">
-    <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
-    <select id="rawSelect" style="min-width:320px" disabled></select>
-    <button id="btnRawDl" disabled>Download</button>
-    <button class="secondary" id="btnRawDlAll" disabled>Download ALL</button>
-    <button class="danger" id="btnRawClear" disabled>Clear raw (ESP32)</button>
-    <span class="pill" id="rawStatus">—</span>
-  </div>
-  <div class="progress"><div id="rawBar" class="bar"></div></div>
-  <div class="muted" id="rawHint" style="margin-top:8px">
-    Premi “Raw list” per vedere i file salvati.
-  </div>
-</div>
+    <div class="progress"><div id="batBar" class="bar"></div></div>
 
-<div class="card hidden" id="debugCard">
-  <b>Debug</b>
-  <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
-  <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
-</div>
+    <div class="grid">
+      <div>Carica</div><div id="batPct">—</div>
+      <div>Tensione</div><div id="batV">—</div>
+      <div>Stato</div><div id="batChg">—</div>
+    </div>
+  </div>
+
+  <!-- EXERCISE + DISPLAY -->
+  <div class="card" id="exCard">
+    <div class="row" style="justify-content:space-between; align-items:center">
+      <b>Esercizio</b>
+      <span id="exBadge" class="badge">—</span>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <select id="exSelect" style="min-width:320px" disabled></select>
+      <button class="secondary" id="btnSetEx" disabled>Set</button>
+
+      <span style="flex:1"></span>
+
+      <button class="secondary" id="btnDisp" disabled>Schermo OFF</button>
+      <span id="dispBadge" class="badge">—</span>
+    </div>
+
+    <div class="muted" style="margin-top:8px">
+      Seleziona l’esercizio e premi <b>Set</b> per impostarlo sul device. (Se vuoi auto-set al cambio dimmelo e lo facciamo.)
+    </div>
+  </div>
+
+  <!-- RAW -->
+  <div class="card">
+    <b>RAW (CSV IMU)</b>
+    <div class="row">
+      <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
+      <select id="rawSelect" style="min-width:320px" disabled></select>
+      <button id="btnRawDl" disabled>Download</button>
+      <button class="secondary" id="btnRawDlAll" disabled>Download ALL</button>
+      <button class="danger" id="btnRawClear" disabled>Clear raw (ESP32)</button>
+      <span class="pill" id="rawStatus">—</span>
+    </div>
+
+    <div class="progress"><div id="rawBar" class="bar"></div></div>
+
+    <div class="muted" id="rawHint" style="margin-top:8px">
+      Premi “Raw list” per vedere i file salvati.
+    </div>
+  </div>
+
+  <!-- DEBUG -->
+  <div class="card hidden" id="debugCard">
+    <b>Debug</b>
+    <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
+    <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
+  </div>
 
 <script>
-/* =========================
-   UUID BLE
-========================= */
+/* ========================= UUID BLE ========================= */
 const UUID_SERVICE="b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 
-/* =========================
-   State
-========================= */
-let dev,server,svc,chTX,chRX;
+/* ========================= State ========================= */
+let dev, server, svc, chTX, chRX;
 let metaReceived=false;
+let meta=null;
+let dispOn=true;
 
+// robust JSON stream parser
 let jsonBuf="", depth=0, inStr=false, esc=false;
 
-/* RAW download state */
+// RAW download state
 let rawList = [];
-let dl = null;         // {name,size,got,parts:Uint8Array[], timer}
-let dlAll = null;      // {queue:[...], idx, running, retriesLeft}
+let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
+let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
 
-/* =========================
-   Helpers UI
-========================= */
-const $=id=>document.getElementById(id);
+/* ========================= Helpers UI ========================= */
+const $ = (id)=>document.getElementById(id);
 
 function setConn(on){
   const b=$("connBadge");
@@ -121,16 +144,22 @@ $("dbgToggle").addEventListener("change",()=>{
 
 function dbgLine(prefix, s){
   if(!$("dbgToggle").checked) return;
-  $("dbgLog").textContent=(`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
+  $("dbgLog").textContent = (`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
 }
 const dbgTX = (s)=>dbgLine("TX:", s);
 const dbgRX = (s)=>dbgLine("RX:", s);
 
-function num(x){ const n=Number(x); return Number.isFinite(n)?n:null; }
+function num(x){
+  const n=Number(x);
+  return Number.isFinite(n)?n:null;
+}
+
 function voltFromMaybeMv(v){
-  const n=num(v); if(n===null) return null;
+  const n=num(v);
+  if(n===null) return null;
   return (n>20)?(n/1000.0):n;
 }
+
 function battLabel(vV){
   if(vV===null) return {t:"—",c:""};
   if(vV>=4.15) return {t:"Piena",c:"ok"};
@@ -139,16 +168,17 @@ function battLabel(vV){
   if(vV>=3.65) return {t:"Bassa",c:"warn"};
   return {t:"Critica",c:"bad"};
 }
+
 function updateBattery(bat){
   if(!bat) return;
   const pct=num(bat.pct);
   const vV=voltFromMaybeMv(bat.v);
   const chg=(bat.chg===true);
 
-  $("batPct").textContent=(pct===null)?"—":`${Math.round(pct)}%`;
-  $("batV").textContent=(vV===null)?"—":`${vV.toFixed(3)} V`;
-  $("batChg").textContent=chg?"⚡ In carica (o completata)":"🔋 Batteria";
-  $("batBar").style.width=(pct===null)?"0%":`${Math.max(0,Math.min(100,pct))}%`;
+  $("batPct").textContent = (pct===null) ? "—" : (Math.round(pct) + "%");
+  $("batV").textContent   = (vV===null)  ? "—" : (vV.toFixed(3) + " V");
+  $("batChg").textContent = chg ? "⚡ In carica (o completata)" : "🔋 Batteria";
+  $("batBar").style.width = (pct===null) ? "0%" : (Math.max(0,Math.min(100,pct)) + "%");
 
   const lab=battLabel(vV);
   $("batBadge").textContent=lab.t;
@@ -156,12 +186,39 @@ function updateBattery(bat){
 }
 
 function setRawStatus(t){ $("rawStatus").textContent=t; }
-function setRawBar(p){ $("rawBar").style.width = `${Math.max(0,Math.min(100,p))}%`; }
+function setRawBar(p){ $("rawBar").style.width = (Math.max(0,Math.min(100,p)) + "%"); }
 function dlResetUI(){ setRawBar(0); setRawStatus("—"); }
 
-/* =========================
-   BLE I/O
-========================= */
+function fillExercises(exercises, exIndex){
+  const sel = $("exSelect");
+  sel.innerHTML = "";
+  (exercises || []).forEach((name, i)=>{
+    const opt=document.createElement("option");
+    opt.value = String(i);
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+
+  const ok = !!(exercises && exercises.length);
+  sel.disabled = !ok;
+  $("btnSetEx").disabled = !ok;
+
+  if(typeof exIndex === "number" && exIndex >= 0 && ok){
+    sel.value = String(exIndex);
+  }
+
+  const cur = ok ? exercises[Number(sel.value)] : null;
+  $("exBadge").textContent = cur ? cur : "—";
+}
+
+function setDispUI(on){
+  dispOn = !!on;
+  $("dispBadge").textContent = dispOn ? "ON" : "OFF";
+  $("dispBadge").className = "badge " + (dispOn ? "ok" : "warn");
+  $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
+}
+
+/* ========================= BLE I/O ========================= */
 async function writeCmd(obj){
   const s=JSON.stringify(obj);
   dbgTX(s);
@@ -175,9 +232,7 @@ function onNotify(ev){
   feedText(chunk);
 }
 
-/* =========================
-   JSON stream parser (robusto)
-========================= */
+/* ========================= JSON stream parser (robusto) ========================= */
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -210,15 +265,13 @@ function feedText(str){
         const obj=JSON.parse(raw);
         handleObj(obj, raw);
       }catch(e){
-        dbgRX("PARSE FAIL raw="+raw.slice(0,200));
+        dbgRX("PARSE FAIL raw="+raw.slice(0,220));
       }
     }
   }
 }
 
-/* =========================
-   RAW decode + save
-========================= */
+/* ========================= RAW decode + save ========================= */
 const b64ToBytes = (b64)=>{
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -231,7 +284,7 @@ function saveBytesAsFile(bytes, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename.split("/").pop();
+  a.download = String(filename).split("/").pop();
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -243,25 +296,21 @@ function dlStartTimeout(ms){
   clearTimeout(dl.timer);
   dl.timer = setTimeout(()=>{
     setRawStatus("Timeout (retry...)");
-    // fallback: segnala errore e lascia che Download ALL faccia retry
     handleDlFail("timeout");
   }, ms);
 }
 
 function handleDlFail(reason){
-  // chiude dl corrente
   dl = null;
   setRawBar(0);
 
-  // se Download ALL attivo, fai retry automatico
-  if(dlAll?.running){
+  if(dlAll && dlAll.running){
     dlAll.retriesLeft--;
     if(dlAll.retriesLeft >= 0){
       setRawStatus(`Retry... (${reason})`);
-      // riprova stesso file
       setTimeout(()=> downloadOne(dlAll.queue[dlAll.idx], true), 350);
       return;
-    } else {
+    }else{
       dlAll.running=false;
       setRawStatus(`Download ALL interrotto: ${reason}`);
       $("btnRawDlAll").disabled=false;
@@ -273,32 +322,24 @@ function handleDlFail(reason){
   setRawStatus(`Errore download: ${reason}`);
 }
 
-/* =========================
-   Download ONE / ALL
-========================= */
+/* ========================= Download ONE / ALL ========================= */
 function normRawPath(name){
   if(!name) return "";
   let n = String(name).trim();
   if(!n.startsWith("/")) n = "/" + n;
-  // forza sempre /raw/basename
   const base = n.split("/").pop();
   return "/raw/" + base;
 }
 
 async function downloadOne(name, fromAll=false){
   if(!chRX) return;
-
   const path = normRawPath(name);
   if(!path){ setRawStatus("Nome file vuoto"); return; }
 
-  // reset dl e avvia
   dl = { name: path, size: 0, got: 0, parts: [], timer: null };
   setRawStatus(fromAll ? `Download ALL: ${path}` : `Download: ${path}`);
   setRawBar(0);
-
-  // timeout più lungo: BLE a volte è lenta
   dlStartTimeout(20000);
-
   await writeCmd({cmd:"RAW_GET", name: path});
 }
 
@@ -307,7 +348,7 @@ async function downloadAll(){
     setRawStatus("Lista vuota: premi Raw list");
     return;
   }
-  if(dlAll?.running) return;
+  if(dlAll && dlAll.running) return;
 
   const queue = rawList.map(f=>normRawPath(f.name)).filter(Boolean);
   if(!queue.length){
@@ -316,22 +357,18 @@ async function downloadAll(){
   }
 
   dlAll = { queue, idx: 0, running: true, retriesLeft: 2 };
-
   $("btnRawDlAll").disabled=true;
   $("btnRawDl").disabled=true;
-
   setRawStatus(`Download ALL: 0/${queue.length}`);
   setRawBar(0);
 
-  // avvia primo
   await downloadOne(queue[0], true);
 }
 
 function advanceAll(){
-  if(!dlAll?.running) return;
-
+  if(!dlAll || !dlAll.running) return;
   dlAll.idx++;
-  dlAll.retriesLeft = 2; // reset retry per ogni file
+  dlAll.retriesLeft = 2;
 
   const total = dlAll.queue.length;
   if(dlAll.idx >= total){
@@ -348,42 +385,59 @@ function advanceAll(){
   downloadOne(dlAll.queue[dlAll.idx], true);
 }
 
-/* =========================
-   handle incoming objects
-========================= */
+/* ========================= handle incoming objects ========================= */
 function handleObj(obj, raw){
   dbgRX(raw);
 
   // battery
-  if(obj.bat) updateBattery(obj.bat);
-  if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
+  if(obj && obj.bat) updateBattery(obj.bat);
+  if(obj && obj.type==="bat" && obj.bat) updateBattery(obj.bat);
 
-  if(obj.type==="hello"){ return; }
+  if(obj && obj.type==="disp"){
+    setDispUI(!!obj.on);
+    return;
+  }
 
-  if(obj.type==="meta"){
+  if(obj && obj.type==="hello"){
+    return;
+  }
+
+  if(obj && obj.type==="meta"){
     metaReceived=true;
+    meta=obj;
 
+    // enable RAW
     $("btnRawInfo").disabled=false;
     $("btnRawDl").disabled=true;
     $("btnRawDlAll").disabled=true;
     $("btnRawClear").disabled=false;
 
+    // exercise UI
+    fillExercises(obj.exercises || [], Number(obj.exIndex ?? 0));
+
+    // display UI enabled
+    $("btnDisp").disabled=false;
+
+    // if you later add disp in META, use it; else default ON
+    if(typeof obj.disp === "boolean") setDispUI(obj.disp);
+    else setDispUI(true);
+
     return;
   }
 
   // ---------- RAW protocol ----------
-  if(obj.type==="raw_info"){
+  if(obj && obj.type==="raw_info"){
     rawList = Array.isArray(obj.files) ? obj.files : [];
-
-    // sort by name
     rawList.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
 
     const sel=$("rawSelect");
     sel.innerHTML="";
+
     for(const f of rawList){
       const opt=document.createElement("option");
       opt.value = f.name;
-      opt.textContent = `${normRawPath(f.name)} (${Math.round((f.size||0)/1024)} KB)`;
+      const kb = Math.round((Number(f.size)||0)/1024);
+      opt.textContent = `${normRawPath(f.name)} (${kb} KB)`;
       sel.appendChild(opt);
     }
 
@@ -396,29 +450,27 @@ function handleObj(obj, raw){
     $("rawHint").textContent = has
       ? "Seleziona e premi Download, oppure Download ALL."
       : "Nessun RAW: registra una serie sul device.";
-
     return;
   }
 
-  if(obj.type==="raw_cleared"){
+  if(obj && obj.type==="raw_cleared"){
     rawList=[];
     $("rawSelect").innerHTML="";
     $("rawSelect").disabled=true;
     $("btnRawDl").disabled=true;
     $("btnRawDlAll").disabled=true;
-    setRawStatus(`RAW cancellati su ESP32 (${obj.n??0})`);
+    setRawStatus(`RAW cancellati su ESP32 (${obj.n ?? 0})`);
     setRawBar(0);
     return;
   }
 
-  if(obj.type==="raw_err"){
-    clearTimeout(dl?.timer);
+  if(obj && obj.type==="raw_err"){
+    if(dl && dl.timer) clearTimeout(dl.timer);
     handleDlFail(obj.msg || "raw_err");
     return;
   }
 
-  if(obj.type==="raw_begin"){
-    // start download
+  if(obj && obj.type==="raw_begin"){
     const name = normRawPath(obj.name || "");
     if(!dl || (name && dl.name !== name)){
       dl = { name, size: 0, got: 0, parts: [], timer: null };
@@ -426,19 +478,16 @@ function handleObj(obj, raw){
     dl.size = Number(obj.size)||0;
     dl.got = 0;
     dl.parts = [];
-
     setRawBar(0);
-    setRawStatus(dlAll?.running ? `Download ALL: ${dl.name}` : `Download: ${dl.name}`);
+    setRawStatus(dlAll && dlAll.running ? `Download ALL: ${dl.name}` : `Download: ${dl.name}`);
     dlStartTimeout(20000);
     return;
   }
 
-  if(obj.type==="raw_chunk"){
+  if(obj && obj.type==="raw_chunk"){
     if(!dl){
-      // fallback: crea dl
       dl = { name: normRawPath(obj.name || "raw.csv"), size: 0, got: 0, parts: [], timer: null };
     }
-
     const nm = normRawPath(obj.name || dl.name);
     if(nm && dl.name && nm !== dl.name) return;
 
@@ -448,60 +497,67 @@ function handleObj(obj, raw){
       dl.got += bytes.length;
     }
 
-    // progress
     const pct = dl.size ? (dl.got/dl.size*100) : 0;
     setRawBar(dl.size ? pct : 0);
-    setRawStatus(dl.size
-      ? `${dlAll?.running ? "Download ALL" : "Download"} ${Math.min(99,Math.round(pct))}%`
-      : `Ricevuti ${dl.got}B`
-    );
+
+    if(dl.size){
+      setRawStatus(`${dlAll && dlAll.running ? "Download ALL" : "Download"} ${Math.min(99,Math.round(pct))}%`);
+    }else{
+      setRawStatus(`Ricevuti ${dl.got}B`);
+    }
 
     dlStartTimeout(20000);
     return;
   }
 
-  if(obj.type==="raw_end"){
+  if(obj && obj.type==="raw_end"){
     if(!dl) return;
-    clearTimeout(dl.timer);
+    if(dl.timer) clearTimeout(dl.timer);
 
-    // concat
     let total = 0;
     for(const p of dl.parts) total += p.length;
+
     const out = new Uint8Array(total);
     let off=0;
-    for(const p of dl.parts){ out.set(p, off); off += p.length; }
+    for(const p of dl.parts){
+      out.set(p, off);
+      off += p.length;
+    }
 
     saveBytesAsFile(out, dl.name || obj.name || "raw.csv");
 
-    // progress bar
     setRawBar(100);
-    setRawStatus(dlAll?.running ? `Salvato ✅ (${dl.name})` : "Salvato ✅");
+    setRawStatus(dlAll && dlAll.running ? `Salvato ✅ (${dl.name})` : "Salvato ✅");
 
     dl = null;
 
-    // se ALL → prossimo
-    if(dlAll?.running){
-      // aggiorna barra “globale” in modo sensato
+    if(dlAll && dlAll.running){
       const totalN = dlAll.queue.length;
       const doneN = dlAll.idx + 1;
       setRawBar((doneN/totalN)*100);
       setTimeout(()=>advanceAll(), 250);
     }
-
     return;
   }
 }
 
-/* =========================
-   UI actions
-========================= */
-$("btnConnect").onclick=async()=>{
+/* ========================= UI actions ========================= */
+$("btnConnect").onclick = async ()=>{
   metaReceived=false;
+  meta=null;
+
   dlResetUI();
   setRawStatus("—");
   rawList=[];
   $("rawSelect").innerHTML="";
   $("rawSelect").disabled=true;
+
+  $("exSelect").innerHTML="";
+  $("exSelect").disabled=true;
+  $("btnSetEx").disabled=true;
+  $("exBadge").textContent="—";
+  $("btnDisp").disabled=true;
+  $("dispBadge").textContent="—";
 
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
@@ -523,27 +579,27 @@ $("btnConnect").onclick=async()=>{
   await writeCmd({cmd:"META"});
 };
 
-$("btnMeta").onclick=async()=>{ await writeCmd({cmd:"META"}); };
+$("btnMeta").onclick = async ()=>{ await writeCmd({cmd:"META"}); };
 
-$("btnRawInfo").onclick=async()=>{
+$("btnRawInfo").onclick = async ()=>{
   dlResetUI();
   setRawStatus("Richiedo lista...");
   await writeCmd({cmd:"RAW_INFO"});
 };
 
-$("btnRawDl").onclick=async()=>{
+$("btnRawDl").onclick = async ()=>{
   dlResetUI();
-  let name = $("rawSelect").value;
+  const name = $("rawSelect").value;
   if(!name){ setRawStatus("Seleziona un file"); return; }
   await downloadOne(name, false);
 };
 
-$("btnRawDlAll").onclick=async()=>{
+$("btnRawDlAll").onclick = async ()=>{
   dlResetUI();
   await downloadAll();
 };
 
-$("btnRawClear").onclick=async()=>{
+$("btnRawClear").onclick = async ()=>{
   const x = prompt("Scrivi CLEAR per cancellare TUTTI i RAW dal device:");
   if(x !== "CLEAR") return;
   dlResetUI();
@@ -551,7 +607,31 @@ $("btnRawClear").onclick=async()=>{
   await writeCmd({cmd:"RAW_CLEAR"});
 };
 
-// init
+// Exercise set
+$("btnSetEx").onclick = async ()=>{
+  const i = Number($("exSelect").value);
+  if(!Number.isFinite(i)) return;
+  await writeCmd({cmd:"SET_EX", i});
+  if(meta && Array.isArray(meta.exercises)){
+    $("exBadge").textContent = meta.exercises[i] || "—";
+  }
+};
+
+// Exercise change (solo UI, non setta sul device)
+$("exSelect").onchange = ()=>{
+  if(meta && Array.isArray(meta.exercises)){
+    const i = Number($("exSelect").value);
+    $("exBadge").textContent = meta.exercises[i] || "—";
+  }
+};
+
+// Display toggle
+$("btnDisp").onclick = async ()=>{
+  await writeCmd({cmd:"DISP", on: !dispOn});
+  setDispUI(!dispOn); // ottimistico (poi arriva conferma "disp")
+};
+
+/* ========================= init ========================= */
 setConn(false);
 </script>
 </body>
