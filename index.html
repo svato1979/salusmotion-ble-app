@@ -144,7 +144,7 @@
     </div>
 
     <div class="card">
-      <b>RAW (CSV IMU)</b>
+      <b>RAW (BIN IMU)</b>
       <div class="row">
         <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
         <select id="rawSelect" style="min-width:320px" disabled></select>
@@ -162,13 +162,15 @@
     </div>
 
     <div class="card">
-      <b>Workout LOG (sets.jsonl)</b>
+      <b>Workout LOG (sets.jsonl) → Sync nella webapp</b>
       <div class="row">
-        <button id="btnLogDl" disabled>Download LOG</button>
-        <button class="danger" id="btnLogClear" disabled>Clear LOG</button>
+        <button class="secondary" id="btnLogSync" disabled>Sync LOG</button>
+        <button class="danger" id="btnLogClear" disabled>Clear LOG (device)</button>
+        <span class="pill" id="logStatus">—</span>
       </div>
+      <div class="progress"><div id="logBar" class="bar"></div></div>
       <div class="muted" style="margin-top:6px">
-        Contiene tutti i set salvati nel device (JSONL).
+        Appena ti colleghi fa sync automatico (tipo smartwatch). Nessun download su PC.
       </div>
     </div>
 
@@ -203,8 +205,11 @@
         <div class="row" style="gap:8px">
           <button class="secondary miniBtn" id="btnExportJson">Export JSON</button>
           <button class="secondary miniBtn" id="btnExportCsv">Export CSV</button>
-          <button class="danger miniBtn" id="btnClearHistory">Clear storico</button>
+          <button class="danger miniBtn" id="btnClearHistory">Clear storico (browser)</button>
         </div>
+      </div>
+      <div class="muted" style="margin-top:8px">
+        <span class="pill" id="syncMini">Sync: —</span>
       </div>
     </div>
 
@@ -288,34 +293,50 @@
 <script>
 /* ========================= UUID BLE ========================= */
 const UUID_SERVICE="b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // notify
+const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
 
-/* ========================= State ========================= */
+/* ========================= DOM helpers ========================= */
+const $ = (id)=>document.getElementById(id);
+
+/* ========================= App storage ========================= */
+const STORE_KEY = "salusmotion_sets_v2";        // bump version
+const STORE_SYNC = "salusmotion_last_sync_v1"; // timestamp (ms)
+
+/* ========================= BLE state ========================= */
 let dev=null, server=null, svc=null, chTX=null, chRX=null;
-let metaReceived=false;
 let meta=null;
 let dispOn=true;
 
-// robust JSON stream parser
+/* ========================= Debug ========================= */
 let jsonBuf="", depth=0, inStr=false, esc=false;
+$("dbgToggle").addEventListener("change",()=> $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked));
+function dbgLine(prefix, s){
+  if(!$("dbgToggle").checked) return;
+  $("dbgLog").textContent = (`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
+}
+const dbgTX = (s)=>dbgLine("TX:", s);
+const dbgRX = (s)=>dbgLine("RX:", s);
 
-// RAW download state
+/* ========================= Workout state ========================= */
+let sets = loadSets();  // browser history
+let lastSet = pickLastSet(sets);
+let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
+
+/* ========================= RAW download state ========================= */
 let rawList = [];
 let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
 let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
 
-// LOG download state
-let logDl = null;  // {parts:[], size, got}
+/* ========================= LOG sync state ========================= */
+let logDl = null;  // {parts:Uint8Array[], size:number, got:number}
+let logSyncInFlight = false;
+let logSyncQueued = false; // if you call sync while busy
 
-/* ========================= Workout state (Page2) ========================= */
-const STORE_KEY = "salusmotion_sets_v1";
-let sets = loadSets();
-let lastSet = null;
-let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
-
-/* ========================= Helpers ========================= */
-const $ = (id)=>document.getElementById(id);
+/* ========================= Small utils ========================= */
+function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
+function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
+function nowMs(){ return Date.now(); }
 
 function isConnected(){
   return !!(dev && dev.gatt && dev.gatt.connected && chRX && chTX);
@@ -335,28 +356,12 @@ function setQuickExercise(name){
   $("quickEx").textContent = name || "—";
 }
 
-$("dbgToggle").addEventListener("change",()=>{
-  $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
-});
-
-function dbgLine(prefix, s){
-  if(!$("dbgToggle").checked) return;
-  $("dbgLog").textContent = (`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
-}
-const dbgTX = (s)=>dbgLine("TX:", s);
-const dbgRX = (s)=>dbgLine("RX:", s);
-
-function num(x){
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
-}
-
+/* ========================= Battery UI ========================= */
 function voltFromMaybeMv(v){
   const n = num(v);
   if(n===null) return null;
   return (n>20) ? (n/1000.0) : n;
 }
-
 function battLabel(vV){
   if(vV===null) return {t:"—",c:""};
   if(vV>=4.15) return {t:"Piena",c:"ok"};
@@ -365,7 +370,6 @@ function battLabel(vV){
   if(vV>=3.65) return {t:"Bassa",c:"warn"};
   return {t:"Critica",c:"bad"};
 }
-
 function updateBattery(bat){
   if(!bat) return;
   const pct=num(bat.pct);
@@ -375,17 +379,22 @@ function updateBattery(bat){
   $("batPct").textContent = (pct===null) ? "—" : (Math.round(pct) + "%");
   $("batV").textContent   = (vV===null)  ? "—" : (vV.toFixed(3) + " V");
   $("batChg").textContent = chg ? "⚡ In carica (o completata)" : "🔋 Batteria";
-  $("batBar").style.width = (pct===null) ? "0%" : (Math.max(0,Math.min(100,pct)) + "%");
+  $("batBar").style.width = (pct===null) ? "0%" : (clamp(pct,0,100) + "%");
 
   const lab=battLabel(vV);
   $("batBadge").textContent=lab.t;
   $("batBadge").className="badge "+lab.c;
 }
 
-function setRawStatus(t){ $("rawStatus").textContent=t; }
-function setRawBar(p){ $("rawBar").style.width = (Math.max(0,Math.min(100,p)) + "%"); }
-function dlResetUI(){ setRawBar(0); setRawStatus("—"); }
+/* ========================= Display UI ========================= */
+function setDispUI(on){
+  dispOn = !!on;
+  $("dispBadge").textContent = dispOn ? "ON" : "OFF";
+  $("dispBadge").className = "badge " + (dispOn ? "ok" : "warn");
+  $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
+}
 
+/* ========================= Exercises UI ========================= */
 function fillExercises(exercises, exIndex){
   const sel = $("exSelect");
   sel.innerHTML = "";
@@ -409,13 +418,6 @@ function fillExercises(exercises, exIndex){
   setQuickExercise(cur);
 }
 
-function setDispUI(on){
-  dispOn = !!on;
-  $("dispBadge").textContent = dispOn ? "ON" : "OFF";
-  $("dispBadge").className = "badge " + (dispOn ? "ok" : "warn");
-  $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
-}
-
 /* ========================= Tabs ========================= */
 function showPage(which){
   const isWkt = (which === "wkt");
@@ -425,20 +427,19 @@ function showPage(which){
   $("tabWkt").classList.toggle("active", isWkt);
 
   if(isWkt){
-    renderHistory();
-    renderLive();
-    renderLastSet();
+    renderAllWorkout();
   }
 }
 $("tabCal").onclick = ()=>showPage("cal");
-$("tabWkt").onclick = ()=>showPage("wkt");
+$("tabWkt").onclick = ()=>{
+  showPage("wkt");
+  // safety: if connected and no sync yet (or stale), sync now
+  if(isConnected()) ensureLogSyncedSoon();
+};
 
 /* ========================= BLE I/O ========================= */
 async function writeCmd(obj){
-  if(!isConnected()){
-    setRawStatus("Non connesso");
-    throw new Error("BLE not connected");
-  }
+  if(!isConnected()) throw new Error("BLE not connected");
   const s = JSON.stringify(obj);
   dbgTX(s);
   const enc = new TextEncoder();
@@ -451,13 +452,14 @@ function onNotify(ev){
   feedText(chunk);
 }
 
-function onDisconnected(){
-  // reset handles
+function hardResetUiDisconnected(){
   server=null; svc=null; chTX=null; chRX=null;
-  metaReceived=false; meta=null;
-  dl=null; dlAll=null; logDl=null;
+  meta=null;
 
-  // UI reset
+  dl=null; dlAll=null;
+  logDl=null; logSyncInFlight=false; logSyncQueued=false;
+  setLogStatus("DISCONNECTED", 0);
+
   setConn(false);
   $("btnMeta").disabled=true;
 
@@ -470,8 +472,9 @@ function onDisconnected(){
   setRawStatus("DISCONNECTED");
   setRawBar(0);
 
-  $("btnLogDl").disabled=true;
+  $("btnLogSync").disabled=true;
   $("btnLogClear").disabled=true;
+
   $("btnFormat").disabled=true;
 
   $("exSelect").disabled=true;
@@ -484,7 +487,11 @@ function onDisconnected(){
   setQuickExercise("—");
 }
 
-/* ========================= JSON stream parser ========================= */
+function onDisconnected(){
+  hardResetUiDisconnected();
+}
+
+/* ========================= JSON stream parser (robust) ========================= */
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -523,7 +530,11 @@ function feedText(str){
   }
 }
 
-/* ========================= RAW/LOG helpers ========================= */
+/* ========================= RAW helpers ========================= */
+function setRawStatus(t){ $("rawStatus").textContent=t; }
+function setRawBar(p){ $("rawBar").style.width = (clamp(p,0,100) + "%"); }
+function dlResetUI(){ setRawBar(0); setRawStatus("—"); }
+
 const b64ToBytes = (b64)=>{
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -584,7 +595,6 @@ function normRawPath(name){
   return "/raw/" + base;
 }
 
-/* ========================= Download ONE / ALL ========================= */
 async function downloadOne(name, fromAll=false){
   const path = normRawPath(name);
   if(!path){ setRawStatus("Nome file vuoto"); return; }
@@ -639,7 +649,72 @@ function advanceAll(){
   downloadOne(dlAll.queue[dlAll.idx], true).catch(()=>{});
 }
 
-/* ========================= WORKOUT: storage + UI ========================= */
+/* ========================= LOG sync helpers ========================= */
+function setLogStatus(text, pct){
+  $("logStatus").textContent = text;
+  $("logBar").style.width = (clamp(pct||0,0,100) + "%");
+  $("syncMini").textContent = "Sync: " + text;
+}
+
+function markLastSyncOk(){
+  try{ localStorage.setItem(STORE_SYNC, String(nowMs())); }catch(e){}
+}
+
+function getLastSyncMs(){
+  try{
+    const s = localStorage.getItem(STORE_SYNC);
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }catch(e){ return 0; }
+}
+
+function fmtTime(ms){
+  if(!ms) return "mai";
+  const d = new Date(ms);
+  return d.toLocaleString();
+}
+
+function ensureLogSyncedSoon(){
+  // simple rule: if never synced in this browser OR last sync older than 2 min, resync
+  const last = getLastSyncMs();
+  const stale = !last || (nowMs()-last) > 120000;
+  if(stale) requestLogSync("auto");
+  else setLogStatus("OK · " + fmtTime(last), 100);
+}
+
+async function requestLogSync(reason="manual"){
+  if(!isConnected()){
+    setLogStatus("Non connesso", 0);
+    return;
+  }
+
+  if(logSyncInFlight){
+    logSyncQueued = true;
+    setLogStatus("Sync in corso… (queued)", 0);
+    return;
+  }
+
+  logSyncInFlight = true;
+  logDl = null;
+  setLogStatus(reason==="auto" ? "Sync (auto)…" : "Sync…", 0);
+
+  try{
+    await writeCmd({cmd:"LOG_GET"});
+  }catch(e){
+    logSyncInFlight = false;
+    setLogStatus("Errore LOG_GET", 0);
+  }
+}
+
+function finishLogSyncAndMaybeRepeat(){
+  logSyncInFlight = false;
+  if(logSyncQueued){
+    logSyncQueued = false;
+    requestLogSync("auto").catch(()=>{});
+  }
+}
+
+/* ========================= Workout storage + UI ========================= */
 function loadSets(){
   try{
     const s = localStorage.getItem(STORE_KEY);
@@ -652,6 +727,21 @@ function loadSets(){
 function saveSets(){
   try{ localStorage.setItem(STORE_KEY, JSON.stringify(sets)); }catch(e){}
 }
+
+function pickLastSet(arr){
+  if(!arr || !arr.length) return null;
+  // prefer id, fallback ms
+  const copy = [...arr];
+  copy.sort((a,b)=>{
+    const ai = Number(a.id); const bi = Number(b.id);
+    const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
+    if(aHas && bHas) return bi-ai;
+    const am = Number(a.ms||0); const bm = Number(b.ms||0);
+    return bm-am;
+  });
+  return copy[0] || null;
+}
+
 function fmtS(x){
   const n = num(x);
   if(n===null) return "—";
@@ -729,7 +819,13 @@ function renderHistory(){
   list.innerHTML = "";
   $("histEmpty").classList.toggle("hidden", sets.length>0);
 
-  const arr = [...sets].sort((a,b)=>(Number(b.id||0)-Number(a.id||0)));
+  const arr = [...sets].sort((a,b)=>{
+    const ai = Number(a.id); const bi = Number(b.id);
+    const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
+    if(aHas && bHas) return bi-ai;
+    return Number(b.ms||0) - Number(a.ms||0);
+  });
+
   for(const s of arr){
     const div = document.createElement("div");
     div.className="item";
@@ -841,6 +937,15 @@ function openDetail(s){
   add("RAW file", s.raw || "—");
   add("Timestamp ms", String(s.ms ?? "—"));
   add("exIndex", String(s.exIndex ?? s.exindex ?? "—"));
+  if(s.thr && typeof s.thr === "object"){
+    add("thr.hi", String(s.thr.hi ?? "—"));
+    add("thr.lo", String(s.thr.lo ?? "—"));
+  }
+  if(s.bat && typeof s.bat === "object"){
+    add("bat.pct", String(s.bat.pct ?? "—"));
+    add("bat.v", String(s.bat.v ?? "—"));
+    add("bat.chg", String(s.bat.chg ?? "—"));
+  }
 }
 
 $("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
@@ -858,55 +963,93 @@ function downloadText(filename, text, mime="application/json"){
   URL.revokeObjectURL(url);
 }
 
+function renderAllWorkout(){
+  renderHistory();
+  renderLive();
+  lastSet = pickLastSet(sets);
+  renderLastSet();
+  const last = getLastSyncMs();
+  if(last) setLogStatus("OK · " + fmtTime(last), 100);
+  else setLogStatus("mai", 0);
+}
+
+/* ========================= Merge LOG from device into browser sets ========================= */
+function fingerprintSet(s){
+  // fallback for old/no-id sets
+  return [
+    s.id ?? "",
+    s.ms ?? "",
+    s.exercise ?? "",
+    s.exIndex ?? s.exindex ?? "",
+    s.reps ?? "",
+    num(s.tut_s)?.toFixed(3) ?? "",
+    num(s.quality)?.toFixed(3) ?? "",
+    s.raw ?? ""
+  ].join("|");
+}
+
+function mergeSetsFromDevice(newArr){
+  if(!Array.isArray(newArr) || !newArr.length) return {added:0, total:sets.length};
+
+  // build maps for dedup
+  const byId = new Map();
+  const byFp = new Set();
+
+  for(const s of sets){
+    const idn = Number(s.id);
+    if(Number.isFinite(idn)) byId.set(idn, s);
+    byFp.add(fingerprintSet(s));
+  }
+
+  let added = 0;
+  for(const s0 of newArr){
+    const s = {...s0};
+
+    // normalize: exIndex casing
+    if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
+
+    // fill exercise name from meta if missing
+    if(!s.exercise && meta && Array.isArray(meta.exercises) && s.exIndex != null){
+      s.exercise = meta.exercises[Number(s.exIndex)] || "—";
+    }
+
+    const idn = Number(s.id);
+    if(Number.isFinite(idn)){
+      if(byId.has(idn)){
+        // update existing (device is source of truth)
+        const old = byId.get(idn);
+        Object.assign(old, s);
+      }else{
+        sets.push(s);
+        byId.set(idn, s);
+        byFp.add(fingerprintSet(s));
+        added++;
+      }
+    }else{
+      const fp = fingerprintSet(s);
+      if(byFp.has(fp)) continue;
+      sets.push(s);
+      byFp.add(fp);
+      added++;
+    }
+  }
+
+  // cap
+  if(sets.length > 1200) sets = sets.slice(-1200);
+
+  saveSets();
+  lastSet = pickLastSet(sets);
+  return {added, total:sets.length};
+}
+
 /* ========================= handle incoming objects ========================= */
 function handleObj(obj, raw){
   if(!obj) return;
   dbgRX(raw);
 
-  // battery (due formati)
+  // battery (two formats)
   if(obj.bat) updateBattery(obj.bat);
   if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
-
-  // ---------- LOG protocol ----------
-  if(obj.type==="log_begin"){
-    logDl = { parts:[], size:Number(obj.size)||0, got:0 };
-    return;
-  }
-  if(obj.type==="log_chunk"){
-    if(!logDl) return;
-    const bytes = b64ToBytes(obj.b64);
-    logDl.parts.push(bytes);
-    logDl.got += bytes.length;
-    return;
-  }
-  if(obj.type==="log_end"){
-    if(!logDl) return;
-
-    let total = 0;
-    for(const p of logDl.parts) total += p.length;
-
-    const out = new Uint8Array(total);
-    let off=0;
-    for(const p of logDl.parts){
-      out.set(p,off);
-      off+=p.length;
-    }
-
-    saveBytesAsFile(out, "sets.jsonl");
-    logDl = null;
-    return;
-  }
-  if(obj.type==="cleared"){
-    alert("LOG cancellato dal device");
-    return;
-  }
-  if(obj.type==="fs_formatted"){
-    alert("Filesystem formattato (RAW + LOG)");
-    rawList=[];
-    $("rawSelect").innerHTML="";
-    setRawBar(0);
-    return;
-  }
 
   // display status
   if(obj.type==="disp"){
@@ -914,16 +1057,16 @@ function handleObj(obj, raw){
     return;
   }
 
+  // META
   if(obj.type==="meta"){
-    metaReceived=true;
-    meta=obj;
+    meta = obj;
 
-    // abilita UI che dipende da META
     $("btnRawInfo").disabled=false;
     $("btnRawClear").disabled=false;
 
-    $("btnLogDl").disabled=false;
+    $("btnLogSync").disabled=false;
     $("btnLogClear").disabled=false;
+
     $("btnFormat").disabled=false;
 
     fillExercises(obj.exercises || [], Number(obj.exIndex ?? 0));
@@ -932,6 +1075,102 @@ function handleObj(obj, raw){
     if(typeof obj.disp === "boolean") setDispUI(obj.disp);
     else setDispUI(true);
 
+    // IMPORTANT: auto sync appena arriva META
+    ensureLogSyncedSoon();
+    return;
+  }
+
+  // HELLO (optional)
+  if(obj.type==="hello"){
+    // could show something later if you want
+    return;
+  }
+
+  // ---------- LOG protocol (SYNC into webapp) ----------
+  if(obj.type==="log_err"){
+    setLogStatus("LOG err: " + (obj.msg || "unknown"), 0);
+    logDl = null;
+    finishLogSyncAndMaybeRepeat();
+    return;
+  }
+
+  if(obj.type==="log_begin"){
+    logDl = { parts:[], size:Number(obj.size)||0, got:0 };
+    setLogStatus("Sync… 0%", 0);
+    return;
+  }
+
+  if(obj.type==="log_chunk"){
+    if(!logDl) return;
+    const bytes = b64ToBytes(obj.b64 || "");
+    logDl.parts.push(bytes);
+    logDl.got += bytes.length;
+
+    const pct = logDl.size ? (logDl.got/logDl.size*100) : 0;
+    setLogStatus("Sync… " + (logDl.size ? Math.min(99, Math.round(pct)) + "%" : (logDl.got + "B")), logDl.size ? pct : 0);
+    return;
+  }
+
+  if(obj.type==="log_end"){
+    if(!logDl){
+      setLogStatus("Sync: log_end senza begin", 0);
+      finishLogSyncAndMaybeRepeat();
+      return;
+    }
+
+    // concat bytes
+    let total = 0;
+    for(const p of logDl.parts) total += p.length;
+
+    const out = new Uint8Array(total);
+    let off=0;
+    for(const p of logDl.parts){ out.set(p,off); off+=p.length; }
+
+    // decode to text (JSONL)
+    let text = "";
+    try{
+      text = new TextDecoder("utf-8").decode(out);
+    }catch(e){
+      text = "";
+    }
+
+    // parse JSONL safely
+    const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    const parsed = [];
+    for(const line of lines){
+      try{
+        const j = JSON.parse(line);
+        if(j && j.type === "set") parsed.push(j);
+      }catch(e){
+        // ignore bad line
+      }
+    }
+
+    const {added, total:tot} = mergeSetsFromDevice(parsed);
+
+    logDl = null;
+    markLastSyncOk();
+    setLogStatus(`OK · +${added} · tot ${tot} · ${fmtTime(getLastSyncMs())}`, 100);
+
+    renderAllWorkout();
+    finishLogSyncAndMaybeRepeat();
+    return;
+  }
+
+  // LOG cleared / FS formatted
+  if(obj.type==="cleared"){
+    alert("LOG cancellato dal device");
+    setLogStatus("LOG cleared (device)", 0);
+    finishLogSyncAndMaybeRepeat();
+    return;
+  }
+  if(obj.type==="fs_formatted"){
+    alert("Filesystem formattato (RAW + LOG)");
+    rawList=[];
+    $("rawSelect").innerHTML="";
+    setRawBar(0);
+    setLogStatus("FS formatted", 0);
+    finishLogSyncAndMaybeRepeat();
     return;
   }
 
@@ -949,22 +1188,19 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: SET ----------
+  // ---------- WORKOUT: SET (live push while connected) ----------
   if(obj.type==="set"){
     const s = {...obj};
-    if(s.ms == null) s.ms = Date.now();
-    if(s.exercise == null && meta && Array.isArray(meta.exercises) && s.exindex != null){
-      s.exercise = meta.exercises[Number(s.exindex)] || "—";
+
+    if(s.ms == null) s.ms = nowMs();
+    if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
+
+    if(!s.exercise && meta && Array.isArray(meta.exercises) && s.exIndex != null){
+      s.exercise = meta.exercises[Number(s.exIndex)] || "—";
     }
 
-    sets.push(s);
-    if(sets.length > 500) sets = sets.slice(-500);
-
-    saveSets();
-    lastSet = s;
-
-    renderHistory();
-    renderLastSet();
+    mergeSetsFromDevice([s]);
+    renderAllWorkout();
     return;
   }
 
@@ -1029,7 +1265,7 @@ function handleObj(obj, raw){
 
   if(obj.type==="raw_chunk"){
     if(!dl){
-      dl = { name: normRawPath(obj.name || "raw.csv"), size: 0, got: 0, parts: [], timer: null };
+      dl = { name: normRawPath(obj.name || "raw.bin"), size: 0, got: 0, parts: [], timer: null };
     }
     const nm = normRawPath(obj.name || dl.name);
     if(nm && dl.name && nm !== dl.name) return;
@@ -1067,7 +1303,7 @@ function handleObj(obj, raw){
       off += p.length;
     }
 
-    saveBytesAsFile(out, dl.name || obj.name || "raw.csv");
+    saveBytesAsFile(out, dl.name || obj.name || "raw.bin");
 
     setRawBar(100);
     setRawStatus(dlAll && dlAll.running ? `Salvato ✅ (${dl.name})` : "Salvato ✅");
@@ -1084,13 +1320,12 @@ function handleObj(obj, raw){
   }
 }
 
-/* ========================= UI actions (registrati UNA volta) ========================= */
+/* ========================= UI actions ========================= */
 
 // Connect
 $("btnConnect").onclick = async ()=>{
   try{
     // reset UI “soft”
-    metaReceived=false;
     meta=null;
 
     dlResetUI();
@@ -1106,9 +1341,11 @@ $("btnConnect").onclick = async ()=>{
     $("dispBadge").textContent="—";
     setQuickExercise("—");
 
-    // reset live (non cancella storico)
+    // reset live (does not clear browser history)
     live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
     renderLive();
+
+    setLogStatus("Connessione…", 0);
 
     dev = await navigator.bluetooth.requestDevice({
       filters: [{ services: [UUID_SERVICE] }],
@@ -1128,16 +1365,17 @@ $("btnConnect").onclick = async ()=>{
     $("btnMeta").disabled=false;
     setConn(true);
 
+    // handshake
     await writeCmd({cmd:"HELLO"});
-    await writeCmd({cmd:"META"});
+    await writeCmd({cmd:"META"}); // when meta arrives -> auto sync LOG
   }catch(e){
     console.error(e);
-    onDisconnected();
+    hardResetUiDisconnected();
     alert("Connessione fallita (Web Bluetooth). Apri in Chrome/Edge e accetta il pairing.");
   }
 };
 
-// META manuale
+// META manual
 $("btnMeta").onclick = async ()=>{
   try{ await writeCmd({cmd:"META"}); }catch(e){}
 };
@@ -1206,16 +1444,14 @@ $("exSelect").onchange = ()=>{
 $("btnDisp").onclick = async ()=>{
   try{
     await writeCmd({cmd:"DISP", on: !dispOn});
-    setDispUI(!dispOn); // ottimistico
+    setDispUI(!dispOn); // optimistic
   }catch(e){}
 };
 
-// LOG download
-$("btnLogDl").onclick = async ()=>{
-  try{ await writeCmd({cmd:"LOG_GET"}); }catch(e){}
-};
+// LOG sync (manual)
+$("btnLogSync").onclick = ()=> requestLogSync("manual");
 
-// LOG clear
+// LOG clear (device)
 $("btnLogClear").onclick = async ()=>{
   try{
     const x = prompt("Scrivi CLEAR per cancellare il LOG dal device:");
@@ -1233,7 +1469,7 @@ $("btnFormat").onclick = async ()=>{
   }catch(e){}
 };
 
-// Export JSON/CSV + clear history (browser)
+// Export JSON/CSV + clear browser history
 $("btnExportJson").onclick = ()=>{
   const data = JSON.stringify(sets, null, 2);
   downloadText("salusmotion_sets.json", data, "application/json");
@@ -1257,15 +1493,15 @@ $("btnClearHistory").onclick = ()=>{
   sets = [];
   lastSet = null;
   saveSets();
-  renderHistory();
-  renderLastSet();
-  renderLive();
+  renderAllWorkout();
 };
 
 /* ========================= init ========================= */
 setConn(false);
-renderHistory();
-renderLastSet();
+hardResetUiDisconnected();  // sets UI baseline
+sets = loadSets();
+lastSet = pickLastSet(sets);
+renderAllWorkout();
 renderLive();
 </script>
 </body>
