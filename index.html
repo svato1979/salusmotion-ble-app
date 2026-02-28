@@ -5,7 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SalusMotion_BLE</title>
   <style>
-    :root{--bg:#f6f7fb;--card:#fff;--text:#111;--muted:#6b7280;--line:#e5e7eb;}
+    :root{
+      --bg:#f6f7fb;--card:#fff;--text:#111;--muted:#6b7280;--line:#e5e7eb;
+      --ok:#16a34a;--warn:#f59e0b;--bad:#dc2626;
+    }
     body{font-family:system-ui,Arial;margin:16px;background:var(--bg);color:var(--text)}
     h2{margin:0 0 10px 0}
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -17,96 +20,259 @@
     select,input{padding:10px;border-radius:12px;border:1px solid var(--line);background:#fff}
     .muted{color:var(--muted);font-size:12px}
     .badge{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px;background:#eee}
-    .badge.ok{background:#e8f8ee;color:#16a34a}
-    .badge.warn{background:#fff7e6;color:#f59e0b}
-    .badge.bad{background:#ffe9e9;color:#dc2626}
+    .badge.ok{background:#e8f8ee;color:var(--ok)}
+    .badge.warn{background:#fff7e6;color:var(--warn)}
+    .badge.bad{background:#ffe9e9;color:var(--bad)}
     .grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
     .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden;margin-top:10px}
     .bar{height:100%;width:0%;background:#111;transition:width .2s ease}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
     .hidden{display:none}
     .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
+
+    /* --- APP-ish nav --- */
+    .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 14px 0}
+    .tabs{display:flex;gap:8px;align-items:center}
+    .tab{
+      padding:10px 12px;border-radius:14px;border:1px solid var(--line);
+      background:#fff;color:#111;font-weight:900;cursor:pointer;
+    }
+    .tab.active{background:#111;color:#fff;border-color:#111}
+    .spacer{flex:1}
+    .kpiRow{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:10px}
+    @media (max-width:900px){ .kpiRow{grid-template-columns:repeat(2,minmax(160px,1fr));} }
+    .kpi{
+      border:1px solid var(--line);border-radius:16px;padding:12px;background:#fff;
+      display:flex;flex-direction:column;gap:6px;
+    }
+    .kpi .label{font-size:12px;color:var(--muted);font-weight:800}
+    .kpi .value{font-size:26px;font-weight:1000;line-height:1}
+    .kpi .sub{font-size:12px;color:var(--muted);font-weight:800}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .item{
+      border:1px solid var(--line);border-radius:16px;padding:12px;background:#fff;
+      display:flex;gap:10px;align-items:center;justify-content:space-between;
+    }
+    .item .left{display:flex;flex-direction:column;gap:2px}
+    .item .title{font-weight:1000}
+    .item .meta{font-size:12px;color:var(--muted);font-weight:800}
+    .item .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .miniBtn{padding:8px 10px;border-radius:12px;font-size:12px;font-weight:900}
+    .miniBtn.secondary{background:#fff;color:#111;border:1px solid #111}
+    .miniBtn.danger{background:#fff;color:var(--bad);border:1px solid var(--bad)}
+    .modal{
+      position:fixed;inset:0;background:rgba(0,0,0,.35);
+      display:none;align-items:center;justify-content:center;padding:16px;
+    }
+    .modal.open{display:flex}
+    .sheet{
+      width:min(860px,100%);background:#fff;border-radius:20px;border:1px solid var(--line);
+      padding:14px;
+    }
+    .sheetHeader{display:flex;align-items:center;gap:10px}
+    .sheetHeader .title{font-weight:1000;font-size:16px}
+    .sheetBody{margin-top:10px}
+    .divider{height:1px;background:var(--line);margin:10px 0}
+    .sparkWrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    svg{display:block}
   </style>
 </head>
 
 <body>
   <h2>SalusMotion_BLE</h2>
 
-  <!-- CONNECT -->
-  <div class="card">
-    <div class="row">
-      <button id="btnConnect">Connect</button>
-      <button class="secondary" id="btnMeta" disabled>Meta</button>
-      <span id="connBadge" class="badge">DISCONNECTED</span>
+  <!-- TOP BAR (tabs + quick status) -->
+  <div class="topbar">
+    <div class="tabs">
+      <button class="tab active" id="tabCal">Calibrazione</button>
+      <button class="tab" id="tabWkt" disabled>Workout</button>
+    </div>
 
-      <label class="row" style="margin-left:auto;gap:8px">
-        <input id="dbgToggle" type="checkbox">
-        <span class="muted">Debug</span>
-      </label>
+    <div class="spacer"></div>
+
+    <span id="quickConn" class="badge">DISCONNECTED</span>
+    <span id="quickEx" class="pill">—</span>
+  </div>
+
+  <!-- ========================= PAGE 1: CALIBRATION ========================= -->
+  <div id="pageCal">
+
+    <!-- CONNECT -->
+    <div class="card">
+      <div class="row">
+        <button id="btnConnect">Connect</button>
+        <button class="secondary" id="btnMeta" disabled>Meta</button>
+        <span id="connBadge" class="badge">DISCONNECTED</span>
+
+        <label class="row" style="margin-left:auto;gap:8px">
+          <input id="dbgToggle" type="checkbox">
+          <span class="muted">Debug</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- BATTERY -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <b>Batteria</b><span id="batBadge" class="badge">—</span>
+      </div>
+
+      <div class="progress"><div id="batBar" class="bar"></div></div>
+
+      <div class="grid">
+        <div>Carica</div><div id="batPct">—</div>
+        <div>Tensione</div><div id="batV">—</div>
+        <div>Stato</div><div id="batChg">—</div>
+      </div>
+    </div>
+
+    <!-- EXERCISE + DISPLAY -->
+    <div class="card" id="exCard">
+      <div class="row" style="justify-content:space-between; align-items:center">
+        <b>Esercizio</b>
+        <span id="exBadge" class="badge">—</span>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <select id="exSelect" style="min-width:320px" disabled></select>
+        <button class="secondary" id="btnSetEx" disabled>Set</button>
+
+        <span style="flex:1"></span>
+
+        <button class="secondary" id="btnDisp" disabled>Schermo OFF</button>
+        <span id="dispBadge" class="badge">—</span>
+      </div>
+
+      <div class="muted" style="margin-top:8px">
+        Seleziona l’esercizio e premi <b>Set</b> per impostarlo sul device.
+      </div>
+    </div>
+
+    <!-- RAW -->
+    <div class="card">
+      <b>RAW (CSV IMU)</b>
+      <div class="row">
+        <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
+        <select id="rawSelect" style="min-width:320px" disabled></select>
+        <button id="btnRawDl" disabled>Download</button>
+        <button class="secondary" id="btnRawDlAll" disabled>Download ALL</button>
+        <button class="danger" id="btnRawClear" disabled>Clear raw (ESP32)</button>
+        <span class="pill" id="rawStatus">—</span>
+      </div>
+
+      <div class="progress"><div id="rawBar" class="bar"></div></div>
+
+      <div class="muted" id="rawHint" style="margin-top:8px">
+        Premi “Raw list” per vedere i file salvati.
+      </div>
+    </div>
+
+    <!-- DEBUG -->
+    <div class="card hidden" id="debugCard">
+      <b>Debug</b>
+      <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
+      <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
+    </div>
+
+  </div>
+
+  <!-- ========================= PAGE 2: WORKOUT ========================= -->
+  <div id="pageWkt" class="hidden">
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <b>Workout</b>
+          <div class="muted">LIVE + ultimo set + storico (salvato nel browser).</div>
+        </div>
+
+        <div class="row" style="gap:8px">
+          <button class="secondary miniBtn" id="btnExportJson">Export JSON</button>
+          <button class="secondary miniBtn" id="btnExportCsv">Export CSV</button>
+          <button class="danger miniBtn" id="btnClearHistory">Clear storico</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE KPIs -->
+    <div class="kpiRow">
+      <div class="kpi">
+        <div class="label">LIVE reps</div>
+        <div class="value" id="liveReps">—</div>
+        <div class="sub" id="liveEx">—</div>
+      </div>
+      <div class="kpi">
+        <div class="label">TUT live</div>
+        <div class="value" id="liveTut">—</div>
+        <div class="sub" id="livePhase">phase —</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Segnale (cnv/env)</div>
+        <div class="value" id="liveEnv">—</div>
+        <div class="sub" id="liveThr">thr — / —</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Qualità (ultimo set)</div>
+        <div class="value" id="lastQ">—</div>
+        <div class="sub sparkWrap">
+          <span class="pill" id="lastBadge">—</span>
+          <svg id="spark" width="140" height="26" viewBox="0 0 140 26" aria-label="trend qualità"></svg>
+        </div>
+      </div>
+    </div>
+
+    <!-- LAST SET -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Ultimo set</b>
+        <span id="lastSetMini" class="pill">—</span>
+      </div>
+
+      <div class="grid">
+        <div>Esercizio</div><div id="lastExercise">—</div>
+        <div>Reps</div><div id="lastReps">—</div>
+        <div>TUT</div><div id="lastTut">—</div>
+        <div>Quality</div><div id="lastQuality">—</div>
+        <div>VelLoss</div><div id="lastVel">—</div>
+        <div>RomLoss</div><div id="lastRom">—</div>
+        <div>RIR est / target</div><div id="lastRir">—</div>
+        <div>RAW file</div><div id="lastRaw">—</div>
+      </div>
+
+      <div class="muted" id="lastHint" style="margin-top:8px">
+        Quando il FW manda <code>{"type":"set"...}</code>, qui compare il riepilogo.
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <b>Sets salvati</b>
+        <span class="pill" id="histCount">0</span>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        Click su un set per aprire il dettaglio. (Persistente nel browser)
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="list" id="histList"></div>
+      <div class="muted" id="histEmpty" style="margin-top:10px">Nessun set ancora.</div>
     </div>
   </div>
 
-  <!-- BATTERY -->
-  <div class="card">
-    <div class="row" style="justify-content:space-between">
-      <b>Batteria</b><span id="batBadge" class="badge">—</span>
+  <!-- DETAIL MODAL -->
+  <div class="modal" id="modal">
+    <div class="sheet">
+      <div class="sheetHeader">
+        <div class="title" id="mTitle">Dettaglio set</div>
+        <span class="spacer"></span>
+        <button class="secondary miniBtn" id="btnCloseModal">Chiudi</button>
+      </div>
+      <div class="sheetBody">
+        <div class="grid" id="mGrid"></div>
+      </div>
     </div>
-
-    <div class="progress"><div id="batBar" class="bar"></div></div>
-
-    <div class="grid">
-      <div>Carica</div><div id="batPct">—</div>
-      <div>Tensione</div><div id="batV">—</div>
-      <div>Stato</div><div id="batChg">—</div>
-    </div>
-  </div>
-
-  <!-- EXERCISE + DISPLAY -->
-  <div class="card" id="exCard">
-    <div class="row" style="justify-content:space-between; align-items:center">
-      <b>Esercizio</b>
-      <span id="exBadge" class="badge">—</span>
-    </div>
-
-    <div class="row" style="margin-top:10px">
-      <select id="exSelect" style="min-width:320px" disabled></select>
-      <button class="secondary" id="btnSetEx" disabled>Set</button>
-
-      <span style="flex:1"></span>
-
-      <button class="secondary" id="btnDisp" disabled>Schermo OFF</button>
-      <span id="dispBadge" class="badge">—</span>
-    </div>
-
-    <div class="muted" style="margin-top:8px">
-      Seleziona l’esercizio e premi <b>Set</b> per impostarlo sul device. (Se vuoi auto-set al cambio dimmelo e lo facciamo.)
-    </div>
-  </div>
-
-  <!-- RAW -->
-  <div class="card">
-    <b>RAW (CSV IMU)</b>
-    <div class="row">
-      <button class="secondary" id="btnRawInfo" disabled>Raw list</button>
-      <select id="rawSelect" style="min-width:320px" disabled></select>
-      <button id="btnRawDl" disabled>Download</button>
-      <button class="secondary" id="btnRawDlAll" disabled>Download ALL</button>
-      <button class="danger" id="btnRawClear" disabled>Clear raw (ESP32)</button>
-      <span class="pill" id="rawStatus">—</span>
-    </div>
-
-    <div class="progress"><div id="rawBar" class="bar"></div></div>
-
-    <div class="muted" id="rawHint" style="margin-top:8px">
-      Premi “Raw list” per vedere i file salvati.
-    </div>
-  </div>
-
-  <!-- DEBUG -->
-  <div class="card hidden" id="debugCard">
-    <b>Debug</b>
-    <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
-    <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
   </div>
 
 <script>
@@ -129,6 +295,12 @@ let rawList = [];
 let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
 let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
 
+/* ========================= Workout state (Page2) ========================= */
+const STORE_KEY = "salusmotion_sets_v1";
+let sets = loadSets();          // storico persistente
+let lastSet = null;             // ultimo set ricevuto
+let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
+
 /* ========================= Helpers UI ========================= */
 const $ = (id)=>document.getElementById(id);
 
@@ -136,6 +308,13 @@ function setConn(on){
   const b=$("connBadge");
   b.textContent=on?"CONNECTED":"DISCONNECTED";
   b.className="badge "+(on?"ok":"");
+  $("quickConn").textContent = on ? "CONNECTED" : "DISCONNECTED";
+  $("quickConn").className = "badge " + (on ? "ok" : "");
+  $("tabWkt").disabled = !on; // pagina workout disponibile quando connesso
+}
+
+function setQuickExercise(name){
+  $("quickEx").textContent = name || "—";
 }
 
 $("dbgToggle").addEventListener("change",()=>{
@@ -209,6 +388,7 @@ function fillExercises(exercises, exIndex){
 
   const cur = ok ? exercises[Number(sel.value)] : null;
   $("exBadge").textContent = cur ? cur : "—";
+  setQuickExercise(cur);
 }
 
 function setDispUI(on){
@@ -217,6 +397,28 @@ function setDispUI(on){
   $("dispBadge").className = "badge " + (dispOn ? "ok" : "warn");
   $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
 }
+
+/* ========================= Tabs / pages ========================= */
+function showPage(which){
+  const cal = $("pageCal");
+  const wkt = $("pageWkt");
+  const t1 = $("tabCal");
+  const t2 = $("tabWkt");
+
+  const isWkt = (which === "wkt");
+  cal.classList.toggle("hidden", isWkt);
+  wkt.classList.toggle("hidden", !isWkt);
+  t1.classList.toggle("active", !isWkt);
+  t2.classList.toggle("active", isWkt);
+
+  if(isWkt){
+    renderHistory();
+    renderLive();
+    renderLastSet();
+  }
+}
+$("tabCal").onclick = ()=>showPage("cal");
+$("tabWkt").onclick = ()=>showPage("wkt");
 
 /* ========================= BLE I/O ========================= */
 async function writeCmd(obj){
@@ -387,6 +589,247 @@ function advanceAll(){
   downloadOne(dlAll.queue[dlAll.idx], true);
 }
 
+/* ========================= WORKOUT: storage + UI ========================= */
+function loadSets(){
+  try{
+    const s = localStorage.getItem(STORE_KEY);
+    const arr = s ? JSON.parse(s) : [];
+    return Array.isArray(arr) ? arr : [];
+  }catch(e){
+    return [];
+  }
+}
+function saveSets(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(sets)); }catch(e){}
+}
+function fmtS(x){
+  const n = num(x);
+  if(n===null) return "—";
+  if(n < 10) return n.toFixed(2) + " s";
+  return n.toFixed(1) + " s";
+}
+function fmt1(x, suf=""){
+  const n = num(x);
+  if(n===null) return "—";
+  return n.toFixed(1) + suf;
+}
+function fmt0(x, suf=""){
+  const n = num(x);
+  if(n===null) return "—";
+  return Math.round(n) + suf;
+}
+function qualityBadge(q){
+  const n = num(q);
+  if(n===null) return {t:"—", c:""};
+  if(n>=85) return {t:"Ottimo", c:"ok"};
+  if(n>=65) return {t:"Buono", c:"warn"};
+  return {t:"Da migliorare", c:"bad"};
+}
+function renderLive(){
+  $("liveReps").textContent = (live.reps ?? "—");
+  $("liveTut").textContent  = (live.tut_s==null) ? "—" : fmtS(live.tut_s);
+  $("liveEnv").textContent  = (live.cnv==null) ? "—" : fmt1(live.cnv);
+  $("livePhase").textContent = "phase " + (live.phase ?? "—");
+  $("liveThr").textContent = "thr " + (live.thr_hi==null ? "—" : fmt1(live.thr_hi)) + " / " + (live.thr_lo==null ? "—" : fmt1(live.thr_lo));
+  $("liveEx").textContent = live.exercise || "—";
+}
+function renderLastSet(){
+  const s = lastSet;
+  if(!s){
+    $("lastSetMini").textContent="—";
+    $("lastExercise").textContent="—";
+    $("lastReps").textContent="—";
+    $("lastTut").textContent="—";
+    $("lastQuality").textContent="—";
+    $("lastVel").textContent="—";
+    $("lastRom").textContent="—";
+    $("lastRir").textContent="—";
+    $("lastRaw").textContent="—";
+    $("lastQ").textContent="—";
+    $("lastBadge").textContent="—";
+    $("lastBadge").className="pill";
+    drawSpark();
+    return;
+  }
+
+  $("lastSetMini").textContent = `${s.exercise || "—"} · reps ${s.reps ?? "—"} · Q ${fmt0(s.quality)}`;
+  $("lastExercise").textContent = s.exercise || "—";
+  $("lastReps").textContent = (s.reps ?? "—");
+  $("lastTut").textContent = fmtS(s.tut_s);
+  $("lastQuality").textContent = fmt0(s.quality);
+  $("lastVel").textContent = fmt1(s.velLoss, "%");
+  $("lastRom").textContent = fmt1(s.romLoss, "%");
+  $("lastRir").textContent = (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`;
+  $("lastRaw").textContent = s.raw || "—";
+
+  $("lastQ").textContent = fmt0(s.quality);
+  const b = qualityBadge(s.quality);
+  $("lastBadge").textContent = b.t;
+  $("lastBadge").className = "pill badge " + b.c; // reuse styles
+  drawSpark();
+}
+function renderHistory(){
+  $("histCount").textContent = String(sets.length);
+  const list = $("histList");
+  list.innerHTML = "";
+
+  $("histEmpty").classList.toggle("hidden", sets.length>0);
+
+  // newest first
+  const arr = [...sets].sort((a,b)=>(Number(b.id||0)-Number(a.id||0)));
+  for(const s of arr){
+    const div = document.createElement("div");
+    div.className="item";
+    const left = document.createElement("div");
+    left.className="left";
+    const title = document.createElement("div");
+    title.className="title";
+    title.textContent = `${s.exercise || "—"} · reps ${s.reps ?? "—"} · Q ${fmt0(s.quality)}`;
+    const meta = document.createElement("div");
+    meta.className="meta";
+    meta.textContent = `id ${s.id ?? "—"} · TUT ${fmtS(s.tut_s)} · vL ${fmt1(s.velLoss,"%")} · rL ${fmt1(s.romLoss,"%")}`;
+    left.appendChild(title);
+    left.appendChild(meta);
+
+    const right = document.createElement("div");
+    right.className="right";
+
+    const b = qualityBadge(s.quality);
+    const badge = document.createElement("span");
+    badge.className = "badge " + b.c;
+    badge.textContent = b.t;
+
+    const btn = document.createElement("button");
+    btn.className="miniBtn secondary";
+    btn.textContent="Dettaglio";
+    btn.onclick = ()=>openDetail(s);
+
+    right.appendChild(badge);
+    right.appendChild(btn);
+
+    div.appendChild(left);
+    div.appendChild(right);
+
+    div.onclick = (ev)=>{
+      // evita doppio trigger se click sul bottone
+      if(ev.target === btn) return;
+      openDetail(s);
+    };
+
+    list.appendChild(div);
+  }
+}
+function drawSpark(){
+  const svg = $("spark");
+  const w = 140, h = 26, pad=2;
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.innerHTML = "";
+
+  const qs = sets
+    .slice(-20)
+    .map(s=>num(s.quality))
+    .filter(v=>v!==null);
+
+  if(qs.length < 2){
+    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+    line.setAttribute("x1","2"); line.setAttribute("y1", String(h/2));
+    line.setAttribute("x2", String(w-2)); line.setAttribute("y2", String(h/2));
+    line.setAttribute("stroke","#ddd"); line.setAttribute("stroke-width","2");
+    svg.appendChild(line);
+    return;
+  }
+
+  const min = Math.min(...qs, 0);
+  const max = Math.max(...qs, 100);
+  const span = (max-min) || 1;
+
+  const step = (w - pad*2) / (qs.length - 1);
+
+  let d = "";
+  qs.forEach((v,i)=>{
+    const x = pad + step*i;
+    const y = pad + (h - pad*2) * (1 - (v - min)/span);
+    d += (i===0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
+  });
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+  path.setAttribute("d", d.trim());
+  path.setAttribute("fill","none");
+  path.setAttribute("stroke","#111");
+  path.setAttribute("stroke-width","2");
+  path.setAttribute("stroke-linecap","round");
+  path.setAttribute("stroke-linejoin","round");
+  svg.appendChild(path);
+}
+function openDetail(s){
+  $("modal").classList.add("open");
+  $("mTitle").textContent = `Set id ${s.id ?? "—"} · ${s.exercise || "—"}`;
+  const g = $("mGrid");
+  g.innerHTML = "";
+
+  const add = (k,v)=>{
+    const a = document.createElement("div");
+    a.textContent = k;
+    const b = document.createElement("div");
+    b.textContent = v;
+    g.appendChild(a); g.appendChild(b);
+  };
+
+  add("Esercizio", s.exercise || "—");
+  add("ID", String(s.id ?? "—"));
+  add("Reps", String(s.reps ?? "—"));
+  add("TUT", fmtS(s.tut_s));
+  add("Quality", fmt0(s.quality));
+  add("VelLoss", fmt1(s.velLoss, "%"));
+  add("RomLoss", fmt1(s.romLoss, "%"));
+  add("Dirty", fmt1(s.dirty, "%"));
+  add("RIR est / target", (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`);
+  add("RAW file", s.raw || "—");
+  add("Timestamp ms", String(s.ms ?? "—"));
+  add("exIndex", String(s.exIndex ?? "—"));
+}
+$("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
+$("modal").onclick = (e)=>{ if(e.target === $("modal")) $("modal").classList.remove("open"); };
+
+function downloadText(filename, text, mime="application/json"){
+  const blob = new Blob([text], {type:mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+$("btnExportJson").onclick = ()=>{
+  const data = JSON.stringify(sets, null, 2);
+  downloadText("salusmotion_sets.json", data, "application/json");
+};
+$("btnExportCsv").onclick = ()=>{
+  const cols = ["id","ms","exercise","exIndex","reps","tut_s","quality","velLoss","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
+  const esc = (v)=>{
+    const s = String(v ?? "");
+    if(/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
+    return s;
+  };
+  const lines = [cols.join(",")];
+  for(const s of sets){
+    lines.push(cols.map(c=>esc(s[c])).join(","));
+  }
+  downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
+};
+$("btnClearHistory").onclick = ()=>{
+  const x = prompt("Scrivi CLEAR per cancellare lo storico della webapp:");
+  if(x !== "CLEAR") return;
+  sets = [];
+  lastSet = null;
+  saveSets();
+  renderHistory();
+  renderLastSet();
+  renderLive();
+};
+
 /* ========================= handle incoming objects ========================= */
 function handleObj(obj, raw){
   dbgRX(raw);
@@ -395,8 +838,15 @@ function handleObj(obj, raw){
   if(obj && obj.bat) updateBattery(obj.bat);
   if(obj && obj.type==="bat" && obj.bat) updateBattery(obj.bat);
 
+  // display status
   if(obj && obj.type==="disp"){
     setDispUI(!!obj.on);
+    return;
+  }
+
+  // state (optional)
+  if(obj && obj.type==="state"){
+    // es: {"type":"state","st":"IDLE"} - lasciamo nel debug
     return;
   }
 
@@ -424,6 +874,45 @@ function handleObj(obj, raw){
     if(typeof obj.disp === "boolean") setDispUI(obj.disp);
     else setDispUI(true);
 
+    return;
+  }
+
+  // ---------- WORKOUT: LIVE ----------
+  if(obj && obj.type==="live"){
+    live.reps = (obj.reps ?? live.reps);
+    live.tut_s = (obj.tut_s ?? live.tut_s);
+    live.cnv = (obj.cnv ?? obj.env ?? live.cnv); // support cnv/env naming
+    live.thr_hi = (obj.thr_hi ?? live.thr_hi);
+    live.thr_lo = (obj.thr_lo ?? live.thr_lo);
+    live.phase = (obj.phase ?? live.phase);
+    live.exercise = (obj.exercise ?? live.exercise);
+    live.exindex = (obj.exindex ?? obj.exIndex ?? live.exindex);
+
+    renderLive();
+    return;
+  }
+
+  // ---------- WORKOUT: SET (final product) ----------
+  if(obj && obj.type==="set"){
+    // salva nello storico (browser)
+    const s = {...obj};
+
+    // normalizza campi minimi
+    if(s.ms == null) s.ms = Date.now();
+    if(s.exercise == null && meta && Array.isArray(meta.exercises) && s.exindex != null){
+      s.exercise = meta.exercises[Number(s.exindex)] || "—";
+    }
+
+    sets.push(s);
+    // limita crescita (evita 10000 item)
+    if(sets.length > 500) sets = sets.slice(-500);
+
+    saveSets();
+    lastSet = s;
+
+    renderHistory();
+    renderLastSet();
+    drawSpark();
     return;
   }
 
@@ -543,7 +1032,7 @@ function handleObj(obj, raw){
   }
 }
 
-/* ========================= UI actions ========================= */
+/* ========================= UI actions (Page1) ========================= */
 $("btnConnect").onclick = async ()=>{
   metaReceived=false;
   meta=null;
@@ -560,6 +1049,11 @@ $("btnConnect").onclick = async ()=>{
   $("exBadge").textContent="—";
   $("btnDisp").disabled=true;
   $("dispBadge").textContent="—";
+  setQuickExercise("—");
+
+  // reset workout live UI (non cancella storico)
+  live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
+  renderLive();
 
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
@@ -616,6 +1110,7 @@ $("btnSetEx").onclick = async ()=>{
   await writeCmd({cmd:"SET_EX", i});
   if(meta && Array.isArray(meta.exercises)){
     $("exBadge").textContent = meta.exercises[i] || "—";
+    setQuickExercise(meta.exercises[i] || "—");
   }
 };
 
@@ -624,17 +1119,21 @@ $("exSelect").onchange = ()=>{
   if(meta && Array.isArray(meta.exercises)){
     const i = Number($("exSelect").value);
     $("exBadge").textContent = meta.exercises[i] || "—";
+    setQuickExercise(meta.exercises[i] || "—");
   }
 };
 
 // Display toggle
 $("btnDisp").onclick = async ()=>{
   await writeCmd({cmd:"DISP", on: !dispOn});
-  setDispUI(!dispOn); // ottimistico (poi arriva conferma "disp")
+  setDispUI(!dispOn); // ottimistico
 };
 
 /* ========================= init ========================= */
 setConn(false);
+renderHistory();
+renderLastSet();
+renderLive();
 </script>
 </body>
 </html>
