@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="it">
 <head>
@@ -31,7 +30,6 @@
     .hidden{display:none}
     .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
 
-    /* --- APP-ish nav --- */
     .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 14px 0}
     .tabs{display:flex;gap:8px;align-items:center}
     .tab{
@@ -82,7 +80,6 @@
 <body>
   <h2>SalusMotion_BLE</h2>
 
-  <!-- TOP BAR (tabs + quick status) -->
   <div class="topbar">
     <div class="tabs">
       <button class="tab active" id="tabCal">Calibrazione</button>
@@ -95,10 +92,9 @@
     <span id="quickEx" class="pill">—</span>
   </div>
 
-  <!-- ========================= PAGE 1: CALIBRATION ========================= -->
+  <!-- PAGE 1 -->
   <div id="pageCal">
 
-    <!-- CONNECT -->
     <div class="card">
       <div class="row">
         <button id="btnConnect">Connect</button>
@@ -112,7 +108,6 @@
       </div>
     </div>
 
-    <!-- BATTERY -->
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <b>Batteria</b><span id="batBadge" class="badge">—</span>
@@ -127,7 +122,6 @@
       </div>
     </div>
 
-    <!-- EXERCISE + DISPLAY -->
     <div class="card" id="exCard">
       <div class="row" style="justify-content:space-between; align-items:center">
         <b>Esercizio</b>
@@ -149,7 +143,6 @@
       </div>
     </div>
 
-    <!-- RAW -->
     <div class="card">
       <b>RAW (CSV IMU)</b>
       <div class="row">
@@ -168,7 +161,27 @@
       </div>
     </div>
 
-    <!-- DEBUG -->
+    <div class="card">
+      <b>Workout LOG (sets.jsonl)</b>
+      <div class="row">
+        <button id="btnLogDl" disabled>Download LOG</button>
+        <button class="danger" id="btnLogClear" disabled>Clear LOG</button>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        Contiene tutti i set salvati nel device (JSONL).
+      </div>
+    </div>
+
+    <div class="card">
+      <b>System</b>
+      <div class="row">
+        <button class="danger" id="btnFormat" disabled>Format FS (ALL)</button>
+      </div>
+      <div class="muted" style="margin-top:6px">
+        Cancella RAW + LOG + reset next_id / ack_id.
+      </div>
+    </div>
+
     <div class="card hidden" id="debugCard">
       <b>Debug</b>
       <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
@@ -177,7 +190,7 @@
 
   </div>
 
-  <!-- ========================= PAGE 2: WORKOUT ========================= -->
+  <!-- PAGE 2 -->
   <div id="pageWkt" class="hidden">
 
     <div class="card">
@@ -195,7 +208,6 @@
       </div>
     </div>
 
-    <!-- LIVE KPIs -->
     <div class="kpiRow">
       <div class="kpi">
         <div class="label">LIVE reps</div>
@@ -222,7 +234,6 @@
       </div>
     </div>
 
-    <!-- LAST SET -->
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <b>Ultimo set</b>
@@ -245,7 +256,6 @@
       </div>
     </div>
 
-    <!-- HISTORY -->
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <b>Sets salvati</b>
@@ -262,7 +272,6 @@
     </div>
   </div>
 
-  <!-- DETAIL MODAL -->
   <div class="modal" id="modal">
     <div class="sheet">
       <div class="sheetHeader">
@@ -283,7 +292,7 @@ const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 
 /* ========================= State ========================= */
-let dev, server, svc, chTX, chRX;
+let dev=null, server=null, svc=null, chTX=null, chRX=null;
 let metaReceived=false;
 let meta=null;
 let dispOn=true;
@@ -296,22 +305,30 @@ let rawList = [];
 let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
 let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
 
+// LOG download state
+let logDl = null;  // {parts:[], size, got}
+
 /* ========================= Workout state (Page2) ========================= */
 const STORE_KEY = "salusmotion_sets_v1";
-let sets = loadSets();          // storico persistente
-let lastSet = null;             // ultimo set ricevuto
+let sets = loadSets();
+let lastSet = null;
 let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
 
-/* ========================= Helpers UI ========================= */
+/* ========================= Helpers ========================= */
 const $ = (id)=>document.getElementById(id);
 
+function isConnected(){
+  return !!(dev && dev.gatt && dev.gatt.connected && chRX && chTX);
+}
+
 function setConn(on){
-  const b=$("connBadge");
-  b.textContent=on?"CONNECTED":"DISCONNECTED";
-  b.className="badge "+(on?"ok":"");
+  $("connBadge").textContent = on ? "CONNECTED" : "DISCONNECTED";
+  $("connBadge").className = "badge " + (on ? "ok" : "");
+
   $("quickConn").textContent = on ? "CONNECTED" : "DISCONNECTED";
   $("quickConn").className = "badge " + (on ? "ok" : "");
-  $("tabWkt").disabled = !on; // pagina workout disponibile quando connesso
+
+  $("tabWkt").disabled = !on;
 }
 
 function setQuickExercise(name){
@@ -330,14 +347,14 @@ const dbgTX = (s)=>dbgLine("TX:", s);
 const dbgRX = (s)=>dbgLine("RX:", s);
 
 function num(x){
-  const n=Number(x);
-  return Number.isFinite(n)?n:null;
+  const n = Number(x);
+  return Number.isFinite(n) ? n : null;
 }
 
 function voltFromMaybeMv(v){
-  const n=num(v);
+  const n = num(v);
   if(n===null) return null;
-  return (n>20)?(n/1000.0):n;
+  return (n>20) ? (n/1000.0) : n;
 }
 
 function battLabel(vV){
@@ -399,18 +416,13 @@ function setDispUI(on){
   $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
 }
 
-/* ========================= Tabs / pages ========================= */
+/* ========================= Tabs ========================= */
 function showPage(which){
-  const cal = $("pageCal");
-  const wkt = $("pageWkt");
-  const t1 = $("tabCal");
-  const t2 = $("tabWkt");
-
   const isWkt = (which === "wkt");
-  cal.classList.toggle("hidden", isWkt);
-  wkt.classList.toggle("hidden", !isWkt);
-  t1.classList.toggle("active", !isWkt);
-  t2.classList.toggle("active", isWkt);
+  $("pageCal").classList.toggle("hidden", isWkt);
+  $("pageWkt").classList.toggle("hidden", !isWkt);
+  $("tabCal").classList.toggle("active", !isWkt);
+  $("tabWkt").classList.toggle("active", isWkt);
 
   if(isWkt){
     renderHistory();
@@ -423,19 +435,56 @@ $("tabWkt").onclick = ()=>showPage("wkt");
 
 /* ========================= BLE I/O ========================= */
 async function writeCmd(obj){
-  const s=JSON.stringify(obj);
+  if(!isConnected()){
+    setRawStatus("Non connesso");
+    throw new Error("BLE not connected");
+  }
+  const s = JSON.stringify(obj);
   dbgTX(s);
-  const enc=new TextEncoder();
+  const enc = new TextEncoder();
   await chRX.writeValue(enc.encode(s));
 }
 
 function onNotify(ev){
-  const dec=new TextDecoder();
-  const chunk=dec.decode(ev.target.value);
+  const dec = new TextDecoder();
+  const chunk = dec.decode(ev.target.value);
   feedText(chunk);
 }
 
-/* ========================= JSON stream parser (robusto) ========================= */
+function onDisconnected(){
+  // reset handles
+  server=null; svc=null; chTX=null; chRX=null;
+  metaReceived=false; meta=null;
+  dl=null; dlAll=null; logDl=null;
+
+  // UI reset
+  setConn(false);
+  $("btnMeta").disabled=true;
+
+  $("btnRawInfo").disabled=true;
+  $("btnRawDl").disabled=true;
+  $("btnRawDlAll").disabled=true;
+  $("btnRawClear").disabled=true;
+  $("rawSelect").disabled=true;
+  $("rawSelect").innerHTML="";
+  setRawStatus("DISCONNECTED");
+  setRawBar(0);
+
+  $("btnLogDl").disabled=true;
+  $("btnLogClear").disabled=true;
+  $("btnFormat").disabled=true;
+
+  $("exSelect").disabled=true;
+  $("exSelect").innerHTML="";
+  $("btnSetEx").disabled=true;
+  $("exBadge").textContent="—";
+
+  $("btnDisp").disabled=true;
+  $("dispBadge").textContent="—";
+  setQuickExercise("—");
+}
+
+/* ========================= JSON stream parser ========================= */
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -446,7 +495,7 @@ function feedText(str){
       if(ch === "\\"){ esc=true; continue; }
       if(ch === "\""){ inStr=false; }
       continue;
-    } else {
+    }else{
       if(ch === "\""){ inStr=true; jsonBuf += ch; continue; }
     }
 
@@ -474,7 +523,7 @@ function feedText(str){
   }
 }
 
-/* ========================= RAW decode + save ========================= */
+/* ========================= RAW/LOG helpers ========================= */
 const b64ToBytes = (b64)=>{
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -513,7 +562,7 @@ function handleDlFail(reason){
     dlAll.retriesLeft--;
     if(dlAll.retriesLeft >= 0){
       setRawStatus(`Retry... (${reason})`);
-      setTimeout(()=> downloadOne(dlAll.queue[dlAll.idx], true), 350);
+      setTimeout(()=> downloadOne(dlAll.queue[dlAll.idx], true).catch(()=>{}), 350);
       return;
     }else{
       dlAll.running=false;
@@ -527,7 +576,6 @@ function handleDlFail(reason){
   setRawStatus(`Errore download: ${reason}`);
 }
 
-/* ========================= Download ONE / ALL ========================= */
 function normRawPath(name){
   if(!name) return "";
   let n = String(name).trim();
@@ -536,8 +584,8 @@ function normRawPath(name){
   return "/raw/" + base;
 }
 
+/* ========================= Download ONE / ALL ========================= */
 async function downloadOne(name, fromAll=false){
-  if(!chRX) return;
   const path = normRawPath(name);
   if(!path){ setRawStatus("Nome file vuoto"); return; }
 
@@ -545,6 +593,7 @@ async function downloadOne(name, fromAll=false){
   setRawStatus(fromAll ? `Download ALL: ${path}` : `Download: ${path}`);
   setRawBar(0);
   dlStartTimeout(20000);
+
   await writeCmd({cmd:"RAW_GET", name: path});
 }
 
@@ -587,7 +636,7 @@ function advanceAll(){
 
   setRawStatus(`Download ALL: ${dlAll.idx}/${total}`);
   setRawBar(0);
-  downloadOne(dlAll.queue[dlAll.idx], true);
+  downloadOne(dlAll.queue[dlAll.idx], true).catch(()=>{});
 }
 
 /* ========================= WORKOUT: storage + UI ========================= */
@@ -626,6 +675,7 @@ function qualityBadge(q){
   if(n>=65) return {t:"Buono", c:"warn"};
   return {t:"Da migliorare", c:"bad"};
 }
+
 function renderLive(){
   $("liveReps").textContent = (live.reps ?? "—");
   $("liveTut").textContent  = (live.tut_s==null) ? "—" : fmtS(live.tut_s);
@@ -634,6 +684,7 @@ function renderLive(){
   $("liveThr").textContent = "thr " + (live.thr_hi==null ? "—" : fmt1(live.thr_hi)) + " / " + (live.thr_lo==null ? "—" : fmt1(live.thr_lo));
   $("liveEx").textContent = live.exercise || "—";
 }
+
 function renderLastSet(){
   const s = lastSet;
   if(!s){
@@ -660,37 +711,42 @@ function renderLastSet(){
   $("lastQuality").textContent = fmt0(s.quality);
   $("lastVel").textContent = fmt1(s.velLoss, "%");
   $("lastRom").textContent = fmt1(s.romLoss, "%");
-  $("lastRir").textContent = (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`;
+  $("lastRir").textContent = (s.rir_est==null || s.target_rir==null)
+    ? "—"
+    : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`;
   $("lastRaw").textContent = s.raw || "—";
 
   $("lastQ").textContent = fmt0(s.quality);
   const b = qualityBadge(s.quality);
   $("lastBadge").textContent = b.t;
-  $("lastBadge").className = "pill badge " + b.c; // reuse styles
+  $("lastBadge").className = "pill badge " + b.c;
   drawSpark();
 }
+
 function renderHistory(){
   $("histCount").textContent = String(sets.length);
   const list = $("histList");
   list.innerHTML = "";
-
   $("histEmpty").classList.toggle("hidden", sets.length>0);
 
-  // newest first
   const arr = [...sets].sort((a,b)=>(Number(b.id||0)-Number(a.id||0)));
   for(const s of arr){
     const div = document.createElement("div");
     div.className="item";
+
     const left = document.createElement("div");
     left.className="left";
+
     const title = document.createElement("div");
     title.className="title";
     title.textContent = `${s.exercise || "—"} · reps ${s.reps ?? "—"} · Q ${fmt0(s.quality)}`;
-    const meta = document.createElement("div");
-    meta.className="meta";
-    meta.textContent = `id ${s.id ?? "—"} · TUT ${fmtS(s.tut_s)} · vL ${fmt1(s.velLoss,"%")} · rL ${fmt1(s.romLoss,"%")}`;
+
+    const metaLine = document.createElement("div");
+    metaLine.className="meta";
+    metaLine.textContent = `id ${s.id ?? "—"} · TUT ${fmtS(s.tut_s)} · vL ${fmt1(s.velLoss,"%")} · rL ${fmt1(s.romLoss,"%")}`;
+
     left.appendChild(title);
-    left.appendChild(meta);
+    left.appendChild(metaLine);
 
     const right = document.createElement("div");
     right.className="right";
@@ -712,7 +768,6 @@ function renderHistory(){
     div.appendChild(right);
 
     div.onclick = (ev)=>{
-      // evita doppio trigger se click sul bottone
       if(ev.target === btn) return;
       openDetail(s);
     };
@@ -720,16 +775,14 @@ function renderHistory(){
     list.appendChild(div);
   }
 }
+
 function drawSpark(){
   const svg = $("spark");
   const w = 140, h = 26, pad=2;
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.innerHTML = "";
 
-  const qs = sets
-    .slice(-20)
-    .map(s=>num(s.quality))
-    .filter(v=>v!==null);
+  const qs = sets.slice(-20).map(s=>num(s.quality)).filter(v=>v!==null);
 
   if(qs.length < 2){
     const line = document.createElementNS("http://www.w3.org/2000/svg","line");
@@ -743,7 +796,6 @@ function drawSpark(){
   const min = Math.min(...qs, 0);
   const max = Math.max(...qs, 100);
   const span = (max-min) || 1;
-
   const step = (w - pad*2) / (qs.length - 1);
 
   let d = "";
@@ -762,6 +814,7 @@ function drawSpark(){
   path.setAttribute("stroke-linejoin","round");
   svg.appendChild(path);
 }
+
 function openDetail(s){
   $("modal").classList.add("open");
   $("mTitle").textContent = `Set id ${s.id ?? "—"} · ${s.exercise || "—"}`;
@@ -787,8 +840,9 @@ function openDetail(s){
   add("RIR est / target", (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`);
   add("RAW file", s.raw || "—");
   add("Timestamp ms", String(s.ms ?? "—"));
-  add("exIndex", String(s.exIndex ?? "—"));
+  add("exIndex", String(s.exIndex ?? s.exindex ?? "—"));
 }
+
 $("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
 $("modal").onclick = (e)=>{ if(e.target === $("modal")) $("modal").classList.remove("open"); };
 
@@ -803,75 +857,78 @@ function downloadText(filename, text, mime="application/json"){
   a.remove();
   URL.revokeObjectURL(url);
 }
-$("btnExportJson").onclick = ()=>{
-  const data = JSON.stringify(sets, null, 2);
-  downloadText("salusmotion_sets.json", data, "application/json");
-};
-$("btnExportCsv").onclick = ()=>{
-  const cols = ["id","ms","exercise","exIndex","reps","tut_s","quality","velLoss","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
-  const esc = (v)=>{
-    const s = String(v ?? "");
-    if(/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
-    return s;
-  };
-  const lines = [cols.join(",")];
-  for(const s of sets){
-    lines.push(cols.map(c=>esc(s[c])).join(","));
-  }
-  downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
-};
-$("btnClearHistory").onclick = ()=>{
-  const x = prompt("Scrivi CLEAR per cancellare lo storico della webapp:");
-  if(x !== "CLEAR") return;
-  sets = [];
-  lastSet = null;
-  saveSets();
-  renderHistory();
-  renderLastSet();
-  renderLive();
-};
 
 /* ========================= handle incoming objects ========================= */
 function handleObj(obj, raw){
+  if(!obj) return;
   dbgRX(raw);
 
-  // battery
-  if(obj && obj.bat) updateBattery(obj.bat);
-  if(obj && obj.type==="bat" && obj.bat) updateBattery(obj.bat);
+  // battery (due formati)
+  if(obj.bat) updateBattery(obj.bat);
+  if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
+
+  // ---------- LOG protocol ----------
+  if(obj.type==="log_begin"){
+    logDl = { parts:[], size:Number(obj.size)||0, got:0 };
+    return;
+  }
+  if(obj.type==="log_chunk"){
+    if(!logDl) return;
+    const bytes = b64ToBytes(obj.b64);
+    logDl.parts.push(bytes);
+    logDl.got += bytes.length;
+    return;
+  }
+  if(obj.type==="log_end"){
+    if(!logDl) return;
+
+    let total = 0;
+    for(const p of logDl.parts) total += p.length;
+
+    const out = new Uint8Array(total);
+    let off=0;
+    for(const p of logDl.parts){
+      out.set(p,off);
+      off+=p.length;
+    }
+
+    saveBytesAsFile(out, "sets.jsonl");
+    logDl = null;
+    return;
+  }
+  if(obj.type==="cleared"){
+    alert("LOG cancellato dal device");
+    return;
+  }
+  if(obj.type==="fs_formatted"){
+    alert("Filesystem formattato (RAW + LOG)");
+    rawList=[];
+    $("rawSelect").innerHTML="";
+    setRawBar(0);
+    return;
+  }
 
   // display status
-  if(obj && obj.type==="disp"){
+  if(obj.type==="disp"){
     setDispUI(!!obj.on);
     return;
   }
 
-  // state (optional)
-  if(obj && obj.type==="state"){
-    // es: {"type":"state","st":"IDLE"} - lasciamo nel debug
-    return;
-  }
-
-  if(obj && obj.type==="hello"){
-    return;
-  }
-
-  if(obj && obj.type==="meta"){
+  if(obj.type==="meta"){
     metaReceived=true;
     meta=obj;
 
-    // enable RAW
+    // abilita UI che dipende da META
     $("btnRawInfo").disabled=false;
-    $("btnRawDl").disabled=true;
-    $("btnRawDlAll").disabled=true;
     $("btnRawClear").disabled=false;
 
-    // exercise UI
+    $("btnLogDl").disabled=false;
+    $("btnLogClear").disabled=false;
+    $("btnFormat").disabled=false;
+
     fillExercises(obj.exercises || [], Number(obj.exIndex ?? 0));
 
-    // display UI enabled
     $("btnDisp").disabled=false;
-
-    // if you later add disp in META, use it; else default ON
     if(typeof obj.disp === "boolean") setDispUI(obj.disp);
     else setDispUI(true);
 
@@ -879,33 +936,28 @@ function handleObj(obj, raw){
   }
 
   // ---------- WORKOUT: LIVE ----------
-  if(obj && obj.type==="live"){
+  if(obj.type==="live"){
     live.reps = (obj.reps ?? live.reps);
     live.tut_s = (obj.tut_s ?? live.tut_s);
-    live.cnv = (obj.cnv ?? obj.env ?? live.cnv); // support cnv/env naming
+    live.cnv = (obj.cnv ?? obj.env ?? live.cnv);
     live.thr_hi = (obj.thr_hi ?? live.thr_hi);
     live.thr_lo = (obj.thr_lo ?? live.thr_lo);
     live.phase = (obj.phase ?? live.phase);
     live.exercise = (obj.exercise ?? live.exercise);
     live.exindex = (obj.exindex ?? obj.exIndex ?? live.exindex);
-
     renderLive();
     return;
   }
 
-  // ---------- WORKOUT: SET (final product) ----------
-  if(obj && obj.type==="set"){
-    // salva nello storico (browser)
+  // ---------- WORKOUT: SET ----------
+  if(obj.type==="set"){
     const s = {...obj};
-
-    // normalizza campi minimi
     if(s.ms == null) s.ms = Date.now();
     if(s.exercise == null && meta && Array.isArray(meta.exercises) && s.exindex != null){
       s.exercise = meta.exercises[Number(s.exindex)] || "—";
     }
 
     sets.push(s);
-    // limita crescita (evita 10000 item)
     if(sets.length > 500) sets = sets.slice(-500);
 
     saveSets();
@@ -913,12 +965,11 @@ function handleObj(obj, raw){
 
     renderHistory();
     renderLastSet();
-    drawSpark();
     return;
   }
 
   // ---------- RAW protocol ----------
-  if(obj && obj.type==="raw_info"){
+  if(obj.type==="raw_info"){
     rawList = Array.isArray(obj.files) ? obj.files : [];
     rawList.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
 
@@ -945,7 +996,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj && obj.type==="raw_cleared"){
+  if(obj.type==="raw_cleared"){
     rawList=[];
     $("rawSelect").innerHTML="";
     $("rawSelect").disabled=true;
@@ -956,13 +1007,13 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj && obj.type==="raw_err"){
+  if(obj.type==="raw_err"){
     if(dl && dl.timer) clearTimeout(dl.timer);
     handleDlFail(obj.msg || "raw_err");
     return;
   }
 
-  if(obj && obj.type==="raw_begin"){
+  if(obj.type==="raw_begin"){
     const name = normRawPath(obj.name || "");
     if(!dl || (name && dl.name !== name)){
       dl = { name, size: 0, got: 0, parts: [], timer: null };
@@ -976,7 +1027,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj && obj.type==="raw_chunk"){
+  if(obj.type==="raw_chunk"){
     if(!dl){
       dl = { name: normRawPath(obj.name || "raw.csv"), size: 0, got: 0, parts: [], timer: null };
     }
@@ -1002,7 +1053,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj && obj.type==="raw_end"){
+  if(obj.type==="raw_end"){
     if(!dl) return;
     if(dl.timer) clearTimeout(dl.timer);
 
@@ -1033,89 +1084,116 @@ function handleObj(obj, raw){
   }
 }
 
-/* ========================= UI actions (Page1) ========================= */
+/* ========================= UI actions (registrati UNA volta) ========================= */
+
+// Connect
 $("btnConnect").onclick = async ()=>{
-  metaReceived=false;
-  meta=null;
+  try{
+    // reset UI “soft”
+    metaReceived=false;
+    meta=null;
 
-  dlResetUI();
-  setRawStatus("—");
-  rawList=[];
-  $("rawSelect").innerHTML="";
-  $("rawSelect").disabled=true;
+    dlResetUI();
+    rawList=[];
+    $("rawSelect").innerHTML="";
+    $("rawSelect").disabled=true;
 
-  $("exSelect").innerHTML="";
-  $("exSelect").disabled=true;
-  $("btnSetEx").disabled=true;
-  $("exBadge").textContent="—";
-  $("btnDisp").disabled=true;
-  $("dispBadge").textContent="—";
-  setQuickExercise("—");
+    $("exSelect").innerHTML="";
+    $("exSelect").disabled=true;
+    $("btnSetEx").disabled=true;
+    $("exBadge").textContent="—";
+    $("btnDisp").disabled=true;
+    $("dispBadge").textContent="—";
+    setQuickExercise("—");
 
-  // reset workout live UI (non cancella storico)
-  live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
-  renderLive();
+    // reset live (non cancella storico)
+    live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
+    renderLive();
 
-  dev = await navigator.bluetooth.requestDevice({
-    filters: [{ services: [UUID_SERVICE] }],
-    optionalServices: [UUID_SERVICE]
-  });
+    dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [UUID_SERVICE] }],
+      optionalServices: [UUID_SERVICE]
+    });
 
-  server = await dev.gatt.connect();
-  svc = await server.getPrimaryService(UUID_SERVICE);
-  chTX = await svc.getCharacteristic(UUID_TX);
-  chRX = await svc.getCharacteristic(UUID_RX);
+    dev.addEventListener("gattserverdisconnected", onDisconnected);
 
-  await chTX.startNotifications();
-  chTX.addEventListener("characteristicvaluechanged", onNotify);
+    server = await dev.gatt.connect();
+    svc = await server.getPrimaryService(UUID_SERVICE);
+    chTX = await svc.getCharacteristic(UUID_TX);
+    chRX = await svc.getCharacteristic(UUID_RX);
 
-  $("btnMeta").disabled=false;
-  setConn(true);
+    await chTX.startNotifications();
+    chTX.addEventListener("characteristicvaluechanged", onNotify);
 
-  await writeCmd({cmd:"HELLO"});
-  await writeCmd({cmd:"META"});
+    $("btnMeta").disabled=false;
+    setConn(true);
+
+    await writeCmd({cmd:"HELLO"});
+    await writeCmd({cmd:"META"});
+  }catch(e){
+    console.error(e);
+    onDisconnected();
+    alert("Connessione fallita (Web Bluetooth). Apri in Chrome/Edge e accetta il pairing.");
+  }
 };
 
-$("btnMeta").onclick = async ()=>{ await writeCmd({cmd:"META"}); };
+// META manuale
+$("btnMeta").onclick = async ()=>{
+  try{ await writeCmd({cmd:"META"}); }catch(e){}
+};
 
+// RAW list
 $("btnRawInfo").onclick = async ()=>{
-  dlResetUI();
-  setRawStatus("Richiedo lista...");
-  await writeCmd({cmd:"RAW_INFO"});
+  try{
+    dlResetUI();
+    setRawStatus("Richiedo lista...");
+    await writeCmd({cmd:"RAW_INFO"});
+  }catch(e){}
 };
 
+// RAW download one
 $("btnRawDl").onclick = async ()=>{
-  dlResetUI();
-  const name = $("rawSelect").value;
-  if(!name){ setRawStatus("Seleziona un file"); return; }
-  await downloadOne(name, false);
+  try{
+    dlResetUI();
+    const name = $("rawSelect").value;
+    if(!name){ setRawStatus("Seleziona un file"); return; }
+    await downloadOne(name, false);
+  }catch(e){}
 };
 
+// RAW download all
 $("btnRawDlAll").onclick = async ()=>{
-  dlResetUI();
-  await downloadAll();
+  try{
+    dlResetUI();
+    await downloadAll();
+  }catch(e){}
 };
 
+// RAW clear
 $("btnRawClear").onclick = async ()=>{
-  const x = prompt("Scrivi CLEAR per cancellare TUTTI i RAW dal device:");
-  if(x !== "CLEAR") return;
-  dlResetUI();
-  setRawStatus("Cancellazione...");
-  await writeCmd({cmd:"RAW_CLEAR"});
+  try{
+    const x = prompt("Scrivi CLEAR per cancellare TUTTI i RAW dal device:");
+    if(x !== "CLEAR") return;
+    dlResetUI();
+    setRawStatus("Cancellazione...");
+    await writeCmd({cmd:"RAW_CLEAR"});
+  }catch(e){}
 };
 
 // Exercise set
 $("btnSetEx").onclick = async ()=>{
-  const i = Number($("exSelect").value);
-  if(!Number.isFinite(i)) return;
-  await writeCmd({cmd:"SET_EX", i});
-  if(meta && Array.isArray(meta.exercises)){
-    $("exBadge").textContent = meta.exercises[i] || "—";
-    setQuickExercise(meta.exercises[i] || "—");
-  }
+  try{
+    const i = Number($("exSelect").value);
+    if(!Number.isFinite(i)) return;
+    await writeCmd({cmd:"SET_EX", i});
+    if(meta && Array.isArray(meta.exercises)){
+      $("exBadge").textContent = meta.exercises[i] || "—";
+      setQuickExercise(meta.exercises[i] || "—");
+    }
+  }catch(e){}
 };
 
-// Exercise change (solo UI, non setta sul device)
+// Exercise change UI only
 $("exSelect").onchange = ()=>{
   if(meta && Array.isArray(meta.exercises)){
     const i = Number($("exSelect").value);
@@ -1126,8 +1204,62 @@ $("exSelect").onchange = ()=>{
 
 // Display toggle
 $("btnDisp").onclick = async ()=>{
-  await writeCmd({cmd:"DISP", on: !dispOn});
-  setDispUI(!dispOn); // ottimistico
+  try{
+    await writeCmd({cmd:"DISP", on: !dispOn});
+    setDispUI(!dispOn); // ottimistico
+  }catch(e){}
+};
+
+// LOG download
+$("btnLogDl").onclick = async ()=>{
+  try{ await writeCmd({cmd:"LOG_GET"}); }catch(e){}
+};
+
+// LOG clear
+$("btnLogClear").onclick = async ()=>{
+  try{
+    const x = prompt("Scrivi CLEAR per cancellare il LOG dal device:");
+    if(x !== "CLEAR") return;
+    await writeCmd({cmd:"LOG_CLEAR"});
+  }catch(e){}
+};
+
+// FORMAT FS
+$("btnFormat").onclick = async ()=>{
+  try{
+    const x = prompt("Scrivi FORMAT per cancellare TUTTO il filesystem:");
+    if(x !== "FORMAT") return;
+    await writeCmd({cmd:"FS_FORMAT"});
+  }catch(e){}
+};
+
+// Export JSON/CSV + clear history (browser)
+$("btnExportJson").onclick = ()=>{
+  const data = JSON.stringify(sets, null, 2);
+  downloadText("salusmotion_sets.json", data, "application/json");
+};
+$("btnExportCsv").onclick = ()=>{
+  const cols = ["id","ms","exercise","exIndex","reps","tut_s","quality","velLoss","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
+  const esc = (v)=>{
+    const s = String(v ?? "");
+    if(/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
+    return s;
+  };
+  const lines = [cols.join(",")];
+  for(const s of sets){
+    lines.push(cols.map(c=>esc(s[c])).join(","));
+  }
+  downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
+};
+$("btnClearHistory").onclick = ()=>{
+  const x = prompt("Scrivi CLEAR per cancellare lo storico della webapp:");
+  if(x !== "CLEAR") return;
+  sets = [];
+  lastSet = null;
+  saveSets();
+  renderHistory();
+  renderLastSet();
+  renderLive();
 };
 
 /* ========================= init ========================= */
@@ -1137,4 +1269,4 @@ renderLastSet();
 renderLive();
 </script>
 </body>
-</html> 
+</html>
