@@ -526,40 +526,27 @@ async function onDisconnected(){
 }
 
 /* ========================= JSON stream parser ========================= */
+let lineBuf = "";
+
 function feedText(str){
-  for(let i=0;i<str.length;i++){
-    const ch=str[i];
+  lineBuf += str;
 
-    if(inStr){
-      jsonBuf += ch;
-      if(esc){ esc=false; continue; }
-      if(ch === "\\"){ esc=true; continue; }
-      if(ch === "\""){ inStr=false; }
-      continue;
-    }else{
-      if(ch === "\""){ inStr=true; jsonBuf += ch; continue; }
-    }
+  // protezione: evita buffer infinito se arriva spazzatura senza newline
+  if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
 
-    if(depth===0){
-      if(ch !== "{") continue;
-      depth=1;
-      jsonBuf="{";
-      continue;
-    }
+  let idx;
+  while((idx = lineBuf.indexOf("\n")) >= 0){
+    const line = lineBuf.slice(0, idx).trim();
+    lineBuf = lineBuf.slice(idx+1);
 
-    jsonBuf += ch;
-    if(ch === "{") depth++;
-    else if(ch === "}") depth--;
+    if(!line) continue;
 
-    if(depth===0){
-      const raw=jsonBuf;
-      jsonBuf="";
-      try{
-        const obj=JSON.parse(raw);
-        handleObj(obj, raw);
-      }catch(e){
-        dbgRX("PARSE FAIL raw="+raw.slice(0,220));
-      }
+    try{
+      const obj = JSON.parse(line);
+      dbgRX(line);
+      handleObj(obj, line);
+    }catch(e){
+      dbgRX("LINE PARSE FAIL: " + line.slice(0,220));
     }
   }
 }
