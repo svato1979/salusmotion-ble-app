@@ -25,7 +25,7 @@
     .badge.bad{background:#ffe9e9;color:var(--bad)}
     .grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
     .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden;margin-top:10px}
-    .bar{height:100%;width:0%;background:#111;transition:width .2s ease}
+    .bar{height:100%;width:0%;background:#111;transition:width .15s ease}
     .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
     .hidden{display:none}
     .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
@@ -106,15 +106,16 @@
           <span class="muted">Debug</span>
         </label>
       </div>
+      <div class="muted" style="margin-top:8px">
+        Suggerimento: se fai disconnect/reconnect, premi <b>Connect</b> e aspettati: <b>META → Sync LOG</b> automatico.
+      </div>
     </div>
 
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <b>Batteria</b><span id="batBadge" class="badge">—</span>
       </div>
-
       <div class="progress"><div id="batBar" class="bar"></div></div>
-
       <div class="grid">
         <div>Carica</div><div id="batPct">—</div>
         <div>Tensione</div><div id="batV">—</div>
@@ -170,7 +171,7 @@
       </div>
       <div class="progress"><div id="logBar" class="bar"></div></div>
       <div class="muted" style="margin-top:6px">
-        Appena ti colleghi fa sync automatico (tipo smartwatch). Nessun download su PC.
+        Appena ti colleghi: <b>sync automatico</b> (tipo smartwatch). Nessun download su PC.
       </div>
     </div>
 
@@ -208,6 +209,7 @@
           <button class="danger miniBtn" id="btnClearHistory">Clear storico (browser)</button>
         </div>
       </div>
+
       <div class="muted" style="margin-top:8px">
         <span class="pill" id="syncMini">Sync: —</span>
       </div>
@@ -256,8 +258,8 @@
         <div>RAW file</div><div id="lastRaw">—</div>
       </div>
 
-      <div class="muted" id="lastHint" style="margin-top:8px">
-        Quando il FW manda <code>{"type":"set"...}</code>, qui compare il riepilogo.
+      <div class="muted" style="margin-top:8px">
+        Quando il FW manda <code>{"type":"set"...}</code>, qui compare il riepilogo e viene salvato.
       </div>
     </div>
 
@@ -291,26 +293,38 @@
   </div>
 
 <script>
-/* ========================= UUID BLE ========================= */
-const UUID_SERVICE="b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // notify
-const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
+/* =========================================================
+   SalusMotion BLE WebApp (pulita)
+   - Connect -> HELLO + META
+   - META -> abilita UI + Sync LOG automatico SEMPRE
+   - LOG_GET -> riceve log_begin/log_chunk/log_end
+   - sets.jsonl (JSONL) viene parsato e mergiato nello storico browser
+   - reconnect robusto + timeout sync
+========================================================= */
 
-/* ========================= DOM helpers ========================= */
+/* ========================= UUID BLE ========================= */
+const UUID_SERVICE = "b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_TX      = "b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // notify
+const UUID_RX      = "b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
+
+/* ========================= DOM ========================= */
 const $ = (id)=>document.getElementById(id);
 
-/* ========================= App storage ========================= */
-const STORE_KEY = "salusmotion_sets_v2";        // bump version
-const STORE_SYNC = "salusmotion_last_sync_v1"; // timestamp (ms)
+/* ========================= Storage ========================= */
+const STORE_KEY  = "salusmotion_sets_v3";        // bump
+const STORE_SYNC = "salusmotion_last_sync_v2";   // bump
 
 /* ========================= BLE state ========================= */
 let dev=null, server=null, svc=null, chTX=null, chRX=null;
 let meta=null;
 let dispOn=true;
 
-/* ========================= Debug ========================= */
+/* ========================= Debug (JSON stream) ========================= */
 let jsonBuf="", depth=0, inStr=false, esc=false;
-$("dbgToggle").addEventListener("change",()=> $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked));
+
+$("dbgToggle").addEventListener("change",()=>{
+  $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
+});
 function dbgLine(prefix, s){
   if(!$("dbgToggle").checked) return;
   $("dbgLog").textContent = (`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
@@ -319,7 +333,7 @@ const dbgTX = (s)=>dbgLine("TX:", s);
 const dbgRX = (s)=>dbgLine("RX:", s);
 
 /* ========================= Workout state ========================= */
-let sets = loadSets();  // browser history
+let sets = loadSets();                      // history (browser)
 let lastSet = pickLastSet(sets);
 let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
 
@@ -329,11 +343,12 @@ let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
 let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
 
 /* ========================= LOG sync state ========================= */
-let logDl = null;  // {parts:Uint8Array[], size:number, got:number}
+let logDl = null;               // {parts:Uint8Array[], size:number, got:number}
 let logSyncInFlight = false;
-let logSyncQueued = false; // if you call sync while busy
+let logSyncQueued = false;
+let logTimer = null;
 
-/* ========================= Small utils ========================= */
+/* ========================= Utils ========================= */
 function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
 function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 function nowMs(){ return Date.now(); }
@@ -425,16 +440,13 @@ function showPage(which){
   $("pageWkt").classList.toggle("hidden", !isWkt);
   $("tabCal").classList.toggle("active", !isWkt);
   $("tabWkt").classList.toggle("active", isWkt);
-
-  if(isWkt){
-    renderAllWorkout();
-  }
+  if(isWkt) renderAllWorkout();
 }
 $("tabCal").onclick = ()=>showPage("cal");
 $("tabWkt").onclick = ()=>{
   showPage("wkt");
-  // safety: if connected and no sync yet (or stale), sync now
-  if(isConnected()) ensureLogSyncedSoon();
+  // se sei connesso e vuoi comportamento smartwatch:
+  if(isConnected()) requestLogSync("auto");
 };
 
 /* ========================= BLE I/O ========================= */
@@ -442,25 +454,31 @@ async function writeCmd(obj){
   if(!isConnected()) throw new Error("BLE not connected");
   const s = JSON.stringify(obj);
   dbgTX(s);
-  const enc = new TextEncoder();
-  await chRX.writeValue(enc.encode(s));
+  await chRX.writeValue(new TextEncoder().encode(s));
 }
 
 function onNotify(ev){
-  const dec = new TextDecoder();
-  const chunk = dec.decode(ev.target.value);
+  const chunk = new TextDecoder().decode(ev.target.value);
   feedText(chunk);
 }
 
+function resetJsonStreamParser(){
+  jsonBuf=""; depth=0; inStr=false; esc=false;
+}
+
 function hardResetUiDisconnected(){
+  // BLE handles
   server=null; svc=null; chTX=null; chRX=null;
   meta=null;
 
-  dl=null; dlAll=null;
+  // states
+  rawList=[]; dl=null; dlAll=null;
   logDl=null; logSyncInFlight=false; logSyncQueued=false;
-  setLogStatus("DISCONNECTED", 0);
+  if(logTimer) clearTimeout(logTimer); logTimer=null;
 
+  // UI
   setConn(false);
+
   $("btnMeta").disabled=true;
 
   $("btnRawInfo").disabled=true;
@@ -474,6 +492,7 @@ function hardResetUiDisconnected(){
 
   $("btnLogSync").disabled=true;
   $("btnLogClear").disabled=true;
+  setLogStatus("DISCONNECTED", 0);
 
   $("btnFormat").disabled=true;
 
@@ -485,6 +504,8 @@ function hardResetUiDisconnected(){
   $("btnDisp").disabled=true;
   $("dispBadge").textContent="—";
   setQuickExercise("—");
+
+  resetJsonStreamParser();
 }
 
 function onDisconnected(){
@@ -544,7 +565,7 @@ const b64ToBytes = (b64)=>{
 
 function saveBytesAsFile(bytes, filename){
   const isBin = String(filename).toLowerCase().endsWith(".bin");
-  const mime = isBin ? "application/octet-stream" : "text/csv";
+  const mime = isBin ? "application/octet-stream" : "text/plain";
   const blob = new Blob([bytes], {type:mime});
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -659,7 +680,6 @@ function setLogStatus(text, pct){
 function markLastSyncOk(){
   try{ localStorage.setItem(STORE_SYNC, String(nowMs())); }catch(e){}
 }
-
 function getLastSyncMs(){
   try{
     const s = localStorage.getItem(STORE_SYNC);
@@ -667,19 +687,9 @@ function getLastSyncMs(){
     return Number.isFinite(n) ? n : 0;
   }catch(e){ return 0; }
 }
-
 function fmtTime(ms){
   if(!ms) return "mai";
-  const d = new Date(ms);
-  return d.toLocaleString();
-}
-
-function ensureLogSyncedSoon(){
-  // simple rule: if never synced in this browser OR last sync older than 2 min, resync
-  const last = getLastSyncMs();
-  const stale = !last || (nowMs()-last) > 120000;
-  if(stale) requestLogSync("auto");
-  else setLogStatus("OK · " + fmtTime(last), 100);
+  return new Date(ms).toLocaleString();
 }
 
 async function requestLogSync(reason="manual"){
@@ -695,21 +705,36 @@ async function requestLogSync(reason="manual"){
   }
 
   logSyncInFlight = true;
+  logSyncQueued = false;
   logDl = null;
+
   setLogStatus(reason==="auto" ? "Sync (auto)…" : "Sync…", 0);
+
+  // timeout: se non arriva log_end, non restiamo “bloccati”
+  if(logTimer) clearTimeout(logTimer);
+  logTimer = setTimeout(()=>{
+    if(!logSyncInFlight) return;
+    logDl=null;
+    logSyncInFlight=false;
+    logSyncQueued=false;
+    setLogStatus("Timeout sync LOG", 0);
+  }, 20000);
 
   try{
     await writeCmd({cmd:"LOG_GET"});
   }catch(e){
     logSyncInFlight = false;
+    if(logTimer) clearTimeout(logTimer); logTimer=null;
     setLogStatus("Errore LOG_GET", 0);
   }
 }
 
 function finishLogSyncAndMaybeRepeat(){
   logSyncInFlight = false;
+  if(logTimer) clearTimeout(logTimer); logTimer=null;
+
   if(logSyncQueued){
-    logSyncQueued = false;
+    logSyncQueued=false;
     requestLogSync("auto").catch(()=>{});
   }
 }
@@ -730,14 +755,13 @@ function saveSets(){
 
 function pickLastSet(arr){
   if(!arr || !arr.length) return null;
-  // prefer id, fallback ms
   const copy = [...arr];
   copy.sort((a,b)=>{
-    const ai = Number(a.id); const bi = Number(b.id);
-    const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
+    const ai = Number(a.id), bi = Number(b.id);
+    const aHas = Number.isFinite(ai) && String(a.id).trim()!=="";
+    const bHas = Number.isFinite(bi) && String(b.id).trim()!=="";
     if(aHas && bHas) return bi-ai;
-    const am = Number(a.ms||0); const bm = Number(b.ms||0);
-    return bm-am;
+    return Number(b.ms||0) - Number(a.ms||0);
   });
   return copy[0] || null;
 }
@@ -820,8 +844,9 @@ function renderHistory(){
   $("histEmpty").classList.toggle("hidden", sets.length>0);
 
   const arr = [...sets].sort((a,b)=>{
-    const ai = Number(a.id); const bi = Number(b.id);
-    const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
+    const ai = Number(a.id), bi = Number(b.id);
+    const aHas = Number.isFinite(ai) && String(a.id).trim()!=="";
+    const bHas = Number.isFinite(bi) && String(b.id).trim()!=="";
     if(aHas && bHas) return bi-ai;
     return Number(b.ms||0) - Number(a.ms||0);
   });
@@ -937,15 +962,6 @@ function openDetail(s){
   add("RAW file", s.raw || "—");
   add("Timestamp ms", String(s.ms ?? "—"));
   add("exIndex", String(s.exIndex ?? s.exindex ?? "—"));
-  if(s.thr && typeof s.thr === "object"){
-    add("thr.hi", String(s.thr.hi ?? "—"));
-    add("thr.lo", String(s.thr.lo ?? "—"));
-  }
-  if(s.bat && typeof s.bat === "object"){
-    add("bat.pct", String(s.bat.pct ?? "—"));
-    add("bat.v", String(s.bat.v ?? "—"));
-    add("bat.chg", String(s.bat.chg ?? "—"));
-  }
 }
 
 $("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
@@ -968,14 +984,14 @@ function renderAllWorkout(){
   renderLive();
   lastSet = pickLastSet(sets);
   renderLastSet();
+
   const last = getLastSyncMs();
   if(last) setLogStatus("OK · " + fmtTime(last), 100);
   else setLogStatus("mai", 0);
 }
 
-/* ========================= Merge LOG from device into browser sets ========================= */
+/* ========================= Merge device sets into browser history ========================= */
 function fingerprintSet(s){
-  // fallback for old/no-id sets
   return [
     s.id ?? "",
     s.ms ?? "",
@@ -991,13 +1007,13 @@ function fingerprintSet(s){
 function mergeSetsFromDevice(newArr){
   if(!Array.isArray(newArr) || !newArr.length) return {added:0, total:sets.length};
 
-  // build maps for dedup
   const byId = new Map();
   const byFp = new Set();
 
   for(const s of sets){
     const idn = Number(s.id);
-    if(Number.isFinite(idn)) byId.set(idn, s);
+    const hasId = Number.isFinite(idn) && String(s.id).trim()!=="";
+    if(hasId) byId.set(idn, s);
     byFp.add(fingerprintSet(s));
   }
 
@@ -1005,20 +1021,18 @@ function mergeSetsFromDevice(newArr){
   for(const s0 of newArr){
     const s = {...s0};
 
-    // normalize: exIndex casing
     if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
 
-    // fill exercise name from meta if missing
     if(!s.exercise && meta && Array.isArray(meta.exercises) && s.exIndex != null){
       s.exercise = meta.exercises[Number(s.exIndex)] || "—";
     }
 
     const idn = Number(s.id);
-    if(Number.isFinite(idn)){
+    const hasId = Number.isFinite(idn) && String(s.id).trim()!=="";
+
+    if(hasId){
       if(byId.has(idn)){
-        // update existing (device is source of truth)
-        const old = byId.get(idn);
-        Object.assign(old, s);
+        Object.assign(byId.get(idn), s);
       }else{
         sets.push(s);
         byId.set(idn, s);
@@ -1034,32 +1048,45 @@ function mergeSetsFromDevice(newArr){
     }
   }
 
-  // cap
-  if(sets.length > 1200) sets = sets.slice(-1200);
+  if(sets.length > 1500) sets = sets.slice(-1500);
 
   saveSets();
   lastSet = pickLastSet(sets);
   return {added, total:sets.length};
 }
 
-/* ========================= handle incoming objects ========================= */
+/* ========================= LOG JSONL parse ========================= */
+function parseJsonlSets(text){
+  const lines = String(text).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const parsed = [];
+  for(const line of lines){
+    try{
+      const j = JSON.parse(line);
+      if(j && j.type === "set") parsed.push(j);
+    }catch(e){
+      // ignore
+    }
+  }
+  return parsed;
+}
+
+/* ========================= Incoming objects ========================= */
 function handleObj(obj, raw){
   if(!obj) return;
   dbgRX(raw);
 
-  // battery (two formats)
+  // battery
   if(obj.bat) updateBattery(obj.bat);
   if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
 
-  // display status
-  if(obj.type==="disp"){
-    setDispUI(!!obj.on);
-    return;
-  }
+  // display
+  if(obj.type==="disp"){ setDispUI(!!obj.on); return; }
 
-  // META
+  // META (always triggers auto sync)
   if(obj.type==="meta"){
     meta = obj;
+
+    $("btnMeta").disabled=false;
 
     $("btnRawInfo").disabled=false;
     $("btnRawClear").disabled=false;
@@ -1075,42 +1102,40 @@ function handleObj(obj, raw){
     if(typeof obj.disp === "boolean") setDispUI(obj.disp);
     else setDispUI(true);
 
-    // IMPORTANT: auto sync appena arriva META
-    ensureLogSyncedSoon();
+    // SMARTWATCH behavior: sync ALWAYS on meta
+    requestLogSync("auto");
     return;
   }
 
-  // HELLO (optional)
-  if(obj.type==="hello"){
-    // could show something later if you want
-    return;
-  }
-
-  // ---------- LOG protocol (SYNC into webapp) ----------
+  // LOG errors (optional FW message)
   if(obj.type==="log_err"){
     setLogStatus("LOG err: " + (obj.msg || "unknown"), 0);
-    logDl = null;
+    logDl=null;
     finishLogSyncAndMaybeRepeat();
     return;
   }
 
+  // LOG protocol
   if(obj.type==="log_begin"){
     logDl = { parts:[], size:Number(obj.size)||0, got:0 };
     setLogStatus("Sync… 0%", 0);
     return;
   }
-
   if(obj.type==="log_chunk"){
     if(!logDl) return;
-    const bytes = b64ToBytes(obj.b64 || "");
+    if(typeof obj.b64 !== "string") return;
+
+    const bytes = b64ToBytes(obj.b64);
     logDl.parts.push(bytes);
     logDl.got += bytes.length;
 
     const pct = logDl.size ? (logDl.got/logDl.size*100) : 0;
-    setLogStatus("Sync… " + (logDl.size ? Math.min(99, Math.round(pct)) + "%" : (logDl.got + "B")), logDl.size ? pct : 0);
+    const label = logDl.size
+      ? ("Sync… " + Math.min(99, Math.round(pct)) + "%")
+      : ("Sync… " + logDl.got + "B");
+    setLogStatus(label, logDl.size ? pct : 0);
     return;
   }
-
   if(obj.type==="log_end"){
     if(!logDl){
       setLogStatus("Sync: log_end senza begin", 0);
@@ -1121,43 +1146,28 @@ function handleObj(obj, raw){
     // concat bytes
     let total = 0;
     for(const p of logDl.parts) total += p.length;
-
     const out = new Uint8Array(total);
     let off=0;
     for(const p of logDl.parts){ out.set(p,off); off+=p.length; }
 
-    // decode to text (JSONL)
+    // decode
     let text = "";
-    try{
-      text = new TextDecoder("utf-8").decode(out);
-    }catch(e){
-      text = "";
-    }
+    try{ text = new TextDecoder("utf-8").decode(out); }catch(e){ text=""; }
 
-    // parse JSONL safely
-    const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-    const parsed = [];
-    for(const line of lines){
-      try{
-        const j = JSON.parse(line);
-        if(j && j.type === "set") parsed.push(j);
-      }catch(e){
-        // ignore bad line
-      }
-    }
-
+    const parsed = parseJsonlSets(text);
     const {added, total:tot} = mergeSetsFromDevice(parsed);
 
     logDl = null;
     markLastSyncOk();
-    setLogStatus(`OK · +${added} · tot ${tot} · ${fmtTime(getLastSyncMs())}`, 100);
 
+    setLogStatus(`OK · +${added} · tot ${tot} · ${fmtTime(getLastSyncMs())}`, 100);
     renderAllWorkout();
+
     finishLogSyncAndMaybeRepeat();
     return;
   }
 
-  // LOG cleared / FS formatted
+  // cleared / formatted
   if(obj.type==="cleared"){
     alert("LOG cancellato dal device");
     setLogStatus("LOG cleared (device)", 0);
@@ -1174,7 +1184,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: LIVE ----------
+  // LIVE
   if(obj.type==="live"){
     live.reps = (obj.reps ?? live.reps);
     live.tut_s = (obj.tut_s ?? live.tut_s);
@@ -1188,10 +1198,9 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: SET (live push while connected) ----------
+  // SET push while connected
   if(obj.type==="set"){
     const s = {...obj};
-
     if(s.ms == null) s.ms = nowMs();
     if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
 
@@ -1204,7 +1213,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- RAW protocol ----------
+  // RAW protocol
   if(obj.type==="raw_info"){
     rawList = Array.isArray(obj.files) ? obj.files : [];
     rawList.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
@@ -1325,25 +1334,13 @@ function handleObj(obj, raw){
 // Connect
 $("btnConnect").onclick = async ()=>{
   try{
-    // reset UI “soft”
-    meta=null;
+    // se eri già connesso, prova a chiudere pulito (evita ghost state)
+    try{ if(dev && dev.gatt && dev.gatt.connected) dev.gatt.disconnect(); }catch(e){}
 
-    dlResetUI();
-    rawList=[];
-    $("rawSelect").innerHTML="";
-    $("rawSelect").disabled=true;
-
-    $("exSelect").innerHTML="";
-    $("exSelect").disabled=true;
-    $("btnSetEx").disabled=true;
-    $("exBadge").textContent="—";
-    $("btnDisp").disabled=true;
-    $("dispBadge").textContent="—";
-    setQuickExercise("—");
-
-    // reset live (does not clear browser history)
-    live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
-    renderLive();
+    hardResetUiDisconnected();
+    sets = loadSets();
+    lastSet = pickLastSet(sets);
+    renderAllWorkout();
 
     setLogStatus("Connessione…", 0);
 
@@ -1351,7 +1348,6 @@ $("btnConnect").onclick = async ()=>{
       filters: [{ services: [UUID_SERVICE] }],
       optionalServices: [UUID_SERVICE]
     });
-
     dev.addEventListener("gattserverdisconnected", onDisconnected);
 
     server = await dev.gatt.connect();
@@ -1367,7 +1363,7 @@ $("btnConnect").onclick = async ()=>{
 
     // handshake
     await writeCmd({cmd:"HELLO"});
-    await writeCmd({cmd:"META"}); // when meta arrives -> auto sync LOG
+    await writeCmd({cmd:"META"}); // META -> auto LOG sync
   }catch(e){
     console.error(e);
     hardResetUiDisconnected();
@@ -1448,10 +1444,10 @@ $("btnDisp").onclick = async ()=>{
   }catch(e){}
 };
 
-// LOG sync (manual)
+// LOG sync manual
 $("btnLogSync").onclick = ()=> requestLogSync("manual");
 
-// LOG clear (device)
+// LOG clear device
 $("btnLogClear").onclick = async ()=>{
   try{
     const x = prompt("Scrivi CLEAR per cancellare il LOG dal device:");
@@ -1471,8 +1467,7 @@ $("btnFormat").onclick = async ()=>{
 
 // Export JSON/CSV + clear browser history
 $("btnExportJson").onclick = ()=>{
-  const data = JSON.stringify(sets, null, 2);
-  downloadText("salusmotion_sets.json", data, "application/json");
+  downloadText("salusmotion_sets.json", JSON.stringify(sets, null, 2), "application/json");
 };
 $("btnExportCsv").onclick = ()=>{
   const cols = ["id","ms","exercise","exIndex","reps","tut_s","quality","velLoss","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
@@ -1483,7 +1478,7 @@ $("btnExportCsv").onclick = ()=>{
   };
   const lines = [cols.join(",")];
   for(const s of sets){
-    lines.push(cols.map(c=>esc(s[c])).join(","));
+    lines.push(cols.map(c=>esc(s[c] ?? s[c.toLowerCase()])).join(","));
   }
   downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
 };
@@ -1497,12 +1492,12 @@ $("btnClearHistory").onclick = ()=>{
 };
 
 /* ========================= init ========================= */
-setConn(false);
-hardResetUiDisconnected();  // sets UI baseline
+hardResetUiDisconnected();   // baseline UI
 sets = loadSets();
 lastSet = pickLastSet(sets);
 renderAllWorkout();
 renderLive();
+
 </script>
 </body>
 </html>
