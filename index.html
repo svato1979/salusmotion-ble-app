@@ -11,7 +11,6 @@
     .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
     button{padding:10px 12px;border-radius:12px;border:0;background:#111;color:#fff;font-weight:800}
     button.secondary{background:#fff;color:#111;border:1px solid #111}
-    button.danger{background:#fff;color:#dc2626;border:1px solid #dc2626}
     button:disabled{opacity:.45}
     select,input{padding:10px;border-radius:12px;border:1px solid var(--line);background:#fff}
     .muted{color:var(--muted);font-size:12px}
@@ -39,7 +38,6 @@
     <button id="btnConnect">Connect</button>
     <button class="secondary" id="btnMeta" disabled>Meta</button>
     <button class="secondary" id="btnSync" disabled>Sync sets</button>
-    <button class="danger" id="btnReset" disabled>Reset memoria</button>
     <span id="connBadge" class="badge">DISCONNECTED</span>
 
     <label class="row" style="margin-left:auto;gap:8px">
@@ -79,9 +77,6 @@
       <button class="secondary" id="btnSetRIR" disabled>Invia</button>
     </div>
   </div>
-  <div class="muted" style="margin-top:10px">
-    Durante l’allenamento: premi il tasto sul device (start) → fai la serie → premi di nuovo (stop).
-  </div>
 </div>
 
 <div class="card">
@@ -99,14 +94,11 @@
     <b>Sets sincronizzati</b>
     <span class="muted" id="setsCount">0</span>
   </div>
-  <div class="muted" id="syncStatus">—</div>
-
   <table>
     <thead>
       <tr>
         <th>ID</th><th>Esercizio</th>
         <th class="right">Reps</th>
-        <th class="right">TUT</th>
         <th class="right">Qualità</th>
         <th class="right">VelLoss</th>
         <th class="right">RomLoss</th>
@@ -115,7 +107,8 @@
       </tr>
     </thead>
     <tbody id="setsTbody">
-    <tr><td colspan="9" class="muted">Premi “Sync sets” ...</td></tr>    </tbody>
+      <tr><td colspan="8" class="muted">Premi “Sync sets” per caricare i set dal device.</td></tr>
+    </tbody>
   </table>
 </div>
 
@@ -212,43 +205,21 @@ function renderSets(){
   const arr=[...sets.values()].sort((a,b)=>a.id-b.id);
   $("setsCount").textContent=String(arr.length);
 
-  // helper UI
-  const badge = (q) => {
-    if(q===null) return "";
-    if(q>=80) return "✅";
-    if(q>=60) return "⚠️";
-    return "🛑";
-  };
-  const pctHint = (p) => {
-    if(p===null) return "";
-    if(p>=40) return "🛑";
-    if(p>=25) return "⚠️";
-    return "✅";
-  };
-  const sec = (t) => (t===null ? "" : `${t.toFixed(1)}s`);
-
   if(arr.length===0){
-    tbody.innerHTML=`<tr><td colspan="9" class="muted">Nessun set ricevuto.</td></tr>`;
+    tbody.innerHTML=`<tr><td colspan="8" class="muted">Nessun set ricevuto.</td></tr>`;
     return;
   }
-
   tbody.innerHTML="";
   for(const s of arr){
-    const q=num(s.quality);
-    const vl=num(s.velLoss);
-    const rl=num(s.romLoss);
-    const di=num(s.dirty);
-    const tut=num(s.tut_s);
-
+    const q=num(s.quality), vl=num(s.velLoss), rl=num(s.romLoss), di=num(s.dirty);
     const tr=document.createElement("tr");
     tr.innerHTML=`
       <td>${s.id??""}</td>
       <td>${s.exercise??""}</td>
       <td class="right">${s.reps??""}</td>
-      <td class="right">${sec(tut)}</td>
-      <td class="right">${q===null?"":`${badge(q)} ${q.toFixed(1)}`}</td>
-      <td class="right">${vl===null?"":`${pctHint(vl)} ${vl.toFixed(1)}%`}</td>
-      <td class="right">${rl===null?"":`${pctHint(rl)} ${rl.toFixed(1)}%`}</td>
+      <td class="right">${q===null?"":q.toFixed(1)}</td>
+      <td class="right">${vl===null?"":vl.toFixed(1)}%</td>
+      <td class="right">${rl===null?"":rl.toFixed(1)}%</td>
       <td class="right">${di===null?"":di.toFixed(1)}</td>
       <td class="right">${s.rir_est??""}</td>
     `;
@@ -256,9 +227,7 @@ function renderSets(){
   }
 }
 
-function setSyncStatus(t){ $("syncStatus").textContent=t; }
-
-// stream JSON parser
+// Parser stream JSON: solo su notify
 function feedText(str){
   for(let i=0;i<str.length;i++){
     const ch=str[i];
@@ -302,35 +271,26 @@ function handleObj(obj, raw){
 
   if(obj.bat) updateBattery(obj.bat);
 
+  if(obj.type==="hello"){
+    // niente
+    return;
+  }
+
   if(obj.type==="meta"){
     metaReceived=true;
     if(obj.exercises) updateExercises(obj.exercises, obj.exIndex);
     if(obj.cal) updateCal(obj.cal);
     if(Number.isInteger(obj.target_rir)) $("rirSelect").value=String(obj.target_rir);
-    $("btnSetEx").disabled=false;
-    $("btnSetRIR").disabled=false;
     return;
   }
 
-  if(obj.type==="sync_info"){ onSyncInfo(obj); return; }
-  if(obj.type==="miss"){ /* retry happens */ return; }
-
-  if(obj.type==="cleared"){
-    sets = new Map();
-    renderSets();
-    localStorage.removeItem("salus_last_id");
-    setSyncStatus("Device: memoria resettata.");
+  if(obj.type==="done"){
     return;
   }
 
   if(typeof obj.id==="number" && obj.exercise){
     sets.set(obj.id, obj);
     renderSets();
-    localStorage.setItem("salus_last_id", String(obj.id));
-    if(syncActive && pendingId === obj.id){
-      clearPending();
-      maybeAdvance();
-    }
     return;
   }
 }
@@ -348,91 +308,8 @@ function onNotify(ev){
   feedText(chunk);
 }
 
-// ---------- SYNC A (id-by-id con retry) ----------
-let syncActive=false;
-let syncFirst=0, syncLast=0;
-let syncCurrent=0;
-let pendingId=null;
-let pendingTimer=null;
-
-function clearPending(){
-  if(pendingTimer){ clearTimeout(pendingTimer); pendingTimer=null; }
-  pendingId=null;
-}
-
-function scheduleTimeout(id){
-  clearPending();
-  pendingId=id;
-  pendingTimer=setTimeout(async()=>{
-    if(!syncActive) return;
-    await requestSet(id);
-  }, 700);
-}
-
-async function requestSet(id){
-  if(!syncActive) return;
-  setSyncStatus(`SYNC: richiedo ID ${id}...`);
-  scheduleTimeout(id);
-  await writeCmd({cmd:"SYNC_GET", id});
-}
-
-function maybeAdvance(){
-  if(!syncActive) return;
-
-  while(syncCurrent <= syncLast && sets.has(syncCurrent)) syncCurrent++;
-
-  if(syncCurrent > syncLast){
-    syncActive=false;
-    clearPending();
-    setSyncStatus(`SYNC: completato (${sets.size} set)`);
-    return;
-  }
-  requestSet(syncCurrent);
-}
-
-function onSyncInfo(obj){
-  syncFirst = Number.isFinite(obj.first_id) ? obj.first_id : 0;
-  syncLast  = Number.isFinite(obj.last_id)  ? obj.last_id  : 0;
-
-  if(!obj.count || obj.count===0 || syncLast < syncFirst){
-    syncActive=false;
-    clearPending();
-    setSyncStatus("SYNC: nessun set sul device");
-    return;
-  }
-
-  const lastStr = localStorage.getItem("salus_last_id");
-  const lastLocal = lastStr ? parseInt(lastStr,10) : NaN;
-
-  // ✅ FIX: se il device è stato resettato (last_id più piccolo del tuo lastLocal),
-  // allora resetto anche il localStorage e faccio FULL sync.
-  if (Number.isFinite(lastLocal) && lastLocal > syncLast) {
-    localStorage.removeItem("salus_last_id");
-    sets = new Map();
-    renderSets();
-    setSyncStatus("SYNC: rilevato reset device → full sync...");
-  }
-
-  const lastStr2 = localStorage.getItem("salus_last_id");
-  const lastLocal2 = lastStr2 ? parseInt(lastStr2,10) : NaN;
-
-  const start = (Number.isFinite(lastLocal2) ? Math.max(syncFirst, lastLocal2 + 1) : syncFirst);
-
-  if(start > syncLast){
-    syncActive=false;
-    clearPending();
-    setSyncStatus("SYNC: già aggiornato (nessun nuovo set).");
-    return;
-  }
-
-  syncCurrent = start;
-  maybeAdvance();
-}
-
-// ---------- UI actions ----------
 $("btnConnect").onclick=async()=>{
   metaReceived=false;
-  setSyncStatus("—");
 
   dev = await navigator.bluetooth.requestDevice({
     filters: [{ services: [UUID_SERVICE] }],
@@ -449,16 +326,16 @@ $("btnConnect").onclick=async()=>{
 
   $("btnMeta").disabled=false;
   $("btnSync").disabled=false;
-  $("btnReset").disabled=false;
-
-  $("btnSetEx").disabled=true;
-  $("btnSetRIR").disabled=true;
+  $("btnSetEx").disabled=false;
+  $("btnSetRIR").disabled=false;
 
   setConn(true);
 
+  // handshake
   await writeCmd({cmd:"HELLO"});
   await writeCmd({cmd:"META"});
 
+  // retry se META non arriva (browser/webble a volte “perde” il primo)
   setTimeout(async()=>{
     if(!metaReceived){
       await writeCmd({cmd:"META"});
@@ -469,19 +346,12 @@ $("btnConnect").onclick=async()=>{
 $("btnMeta").onclick=async()=>{ await writeCmd({cmd:"META"}); };
 
 $("btnSync").onclick=async()=>{
-  setSyncStatus("SYNC: avvio...");
-  syncActive=true;
-  clearPending();
-  await writeCmd({cmd:"SYNC_BEGIN"});
+  sets = new Map();
+  renderSets();
+  await writeCmd({cmd:"GET_SETS", from: 0});
 };
 
-$("btnReset").onclick=async()=>{
-  const x = prompt("Scrivi RESET per cancellare TUTTI i set dal device:");
-  if(x !== "RESET") return;
-  setSyncStatus("RESET: in corso...");
-  await writeCmd({cmd:"CLEAR_LOG"});
-};
-
+// Invii puliti: FW manda già META come risposta, niente doppio META
 $("btnSetEx").onclick=async()=>{
   const i=parseInt($("exSelect").value,10);
   if(Number.isInteger(i)) await writeCmd({cmd:"SET_EX", i});
@@ -491,10 +361,9 @@ $("btnSetRIR").onclick=async()=>{
   if(Number.isInteger(v)) await writeCmd({cmd:"SET_RIR", v});
 };
 
-// init
+// init (placeholder)
 setConn(false);
 renderSets();
-setSyncStatus("—");
 updateExercises(["(in attesa di META...)"], 0);
 </script>
 </body>
