@@ -523,11 +523,14 @@ async function cleanupBle(){
 async function onDisconnected(){
   await cleanupBle();
   hardResetUiDisconnected();
+  resetRxBuffer();
 }
 
 /* ========================= JSON stream parser ========================= */
 let lineBuf = "";
-
+function resetRxBuffer(){
+  lineBuf = "";
+}
 function feedText(str){
   lineBuf += str;
 
@@ -1310,6 +1313,8 @@ function handleObj(obj, raw){
 
 // Connect
 $("btnConnect").onclick = async ()=>{
+  resetRxBuffer();
+  
   resetStreamParser();
 
   try{
@@ -1345,6 +1350,8 @@ $("btnConnect").onclick = async ()=>{
     svc = await server.getPrimaryService(UUID_SERVICE);
     chTX = await svc.getCharacteristic(UUID_TX);
     chRX = await svc.getCharacteristic(UUID_RX);
+
+    lineBuf = ""; // <-- AGGIUNGI QUESTA RIGA
 
     await chTX.startNotifications();
     chTX.addEventListener("characteristicvaluechanged", onNotify);
