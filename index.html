@@ -320,8 +320,6 @@ let meta=null;
 let dispOn=true;
 
 /* ========================= Debug ========================= */
-let jsonBuf="", depth=0, inStr=false, esc=false;
-
 $("dbgToggle").addEventListener("change",()=>{
   $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
 });
@@ -463,13 +461,6 @@ function onNotify(ev){
 }
 
 /* ========================= Reset/disconnect ========================= */
-function resetStreamParser(){
-  jsonBuf = "";
-  depth = 0;
-  inStr = false;
-  esc = false;
-}
-
 function hardResetUiDisconnected(){
   // BLE refs
   server=null; svc=null; chTX=null; chRX=null;
@@ -508,7 +499,7 @@ function hardResetUiDisconnected(){
   setQuickExercise("—");
 
   setLogStatus("DISCONNECTED", 0);
-  resetStreamParser();
+  resetRxBuffer();
 }
 
 async function cleanupBle(){
@@ -523,34 +514,86 @@ async function cleanupBle(){
 async function onDisconnected(){
   await cleanupBle();
   hardResetUiDisconnected();
-  resetRxBuffer();
 }
 
-/* ========================= JSON stream parser ========================= */
-let lineBuf = "";
+/* ========================= JSON stream parser (ROBUST) =========================
+   Estrae oggetti JSON completi da uno stream chunked BLE.
+   NON dipende da newline. Usa conteggio { } e gestisce stringhe/escape.
+*/
+let rxBuf = "";
+let rxDepth = 0;
+let rxInStr = false;
+let rxEsc = false;
+let rxStarted = false;
+
 function resetRxBuffer(){
-  lineBuf = "";
+  rxBuf = "";
+  rxDepth = 0;
+  rxInStr = false;
+  rxEsc = false;
+  rxStarted = false;
 }
+
 function feedText(str){
-  lineBuf += str;
+  for(let i=0;i<str.length;i++){
+    const ch = str[i];
 
-  // protezione: evita buffer infinito se arriva spazzatura senza newline
-  if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
-
-  let idx;
-  while((idx = lineBuf.indexOf("\n")) >= 0){
-    const line = lineBuf.slice(0, idx).trim();
-    lineBuf = lineBuf.slice(idx+1);
-
-    if(!line) continue;
-
-    try{
-      const obj = JSON.parse(line);
-      dbgRX(line);
-      handleObj(obj, line);
-    }catch(e){
-      dbgRX("LINE PARSE FAIL: " + line.slice(0,220));
+    if(!rxStarted){
+      if(ch === "{"){
+        rxStarted = true;
+        rxBuf = "{";
+        rxDepth = 1;
+        rxInStr = false;
+        rxEsc = false;
+      }
+      continue;
     }
+
+    rxBuf += ch;
+
+    if(rxEsc){
+      rxEsc = false;
+      continue;
+    }
+
+    if(ch === "\\"){
+      if(rxInStr) rxEsc = true;
+      continue;
+    }
+
+    if(ch === "\""){
+      rxInStr = !rxInStr;
+      continue;
+    }
+
+    if(rxInStr) continue;
+
+    if(ch === "{") rxDepth++;
+    else if(ch === "}") rxDepth--;
+
+    if(rxDepth === 0){
+      const msg = rxBuf.trim();
+      rxBuf = "";
+      rxStarted = false;
+
+      if(!msg) continue;
+
+      try{
+        const obj = JSON.parse(msg);
+        dbgRX(msg);
+        handleObj(obj, msg);
+      }catch(e){
+        dbgRX("JSON PARSE FAIL: " + msg.slice(0,260));
+        // riparti “a caccia” del prossimo '{'
+        resetRxBuffer();
+      }
+    }
+  }
+
+  // protezione: se per qualche motivo resta aperto e cresce troppo
+  if(rxBuf.length > 400000){
+    dbgRX("WARN: rxBuf overflow, reset");
+    resetRxBuffer();
   }
 }
 
@@ -1055,7 +1098,6 @@ function mergeSetsFromDevice(newArr){
 /* ========================= handle incoming objects ========================= */
 function handleObj(obj, raw){
   if(!obj) return;
-  dbgRX(raw);
 
   if(obj.bat) updateBattery(obj.bat);
   if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
@@ -1314,8 +1356,6 @@ function handleObj(obj, raw){
 // Connect
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
-  
-  resetStreamParser();
 
   try{
     meta=null;
@@ -1350,8 +1390,6 @@ $("btnConnect").onclick = async ()=>{
     svc = await server.getPrimaryService(UUID_SERVICE);
     chTX = await svc.getCharacteristic(UUID_TX);
     chRX = await svc.getCharacteristic(UUID_RX);
-
-    lineBuf = ""; // <-- AGGIUNGI QUESTA RIGA
 
     await chTX.startNotifications();
     chTX.addEventListener("characteristicvaluechanged", onNotify);
