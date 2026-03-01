@@ -454,8 +454,7 @@ async function writeCmd(obj){
   if(!isConnected()) throw new Error("BLE not connected");
   const s = JSON.stringify(obj);
   dbgTX(s);
-  await chRX.writeValue(new TextEncoder().encode(s));
-}
+  await chRX.writeValue(new TextEncoder().encode(s + "\n"));}
 
 function onNotify(ev){
   const chunk = new TextDecoder().decode(ev.target.value);
@@ -526,32 +525,100 @@ async function onDisconnected(){
   resetRxBuffer();
 }
 
-/* ========================= JSON stream parser ========================= */
+/* ========================= JSON stream parser (NEWLINE + FALLBACK) ========================= */
 let lineBuf = "";
+let braceBuf = "";
+let depth2 = 0;
+let inStr2 = false;
+let esc2 = false;
+let started2 = false;
+
 function resetRxBuffer(){
   lineBuf = "";
+  braceBuf = "";
+  depth2 = 0;
+  inStr2 = false;
+  esc2 = false;
+  started2 = false;
 }
-function feedText(str){
-  lineBuf += str;
 
-  // protezione: evita buffer infinito se arriva spazzatura senza newline
+function emitJsonText(txt){
+  const s = txt.trim();
+  if(!s) return;
+  try{
+    const obj = JSON.parse(s);
+    dbgRX(s);
+    handleObj(obj, s);
+  }catch(e){
+    dbgRX("JSON PARSE FAIL: " + s.slice(0,220));
+  }
+}
+
+function feedBraceParser(str){
+  for(let i=0;i<str.length;i++){
+    const ch = str[i];
+
+    if(!started2){
+      if(ch === "{"){
+        started2 = true;
+        braceBuf = "{";
+        depth2 = 1;
+        inStr2 = false;
+        esc2 = false;
+      }
+      continue;
+    }
+
+    braceBuf += ch;
+
+    if(esc2){ esc2 = false; continue; }
+    if(ch === "\\" && inStr2){ esc2 = true; continue; }
+    if(ch === "\""){ inStr2 = !inStr2; continue; }
+    if(inStr2) continue;
+
+    if(ch === "{") depth2++;
+    else if(ch === "}") depth2--;
+
+    if(depth2 === 0){
+      const msg = braceBuf;
+      braceBuf = "";
+      started2 = false;
+      emitJsonText(msg);
+    }
+  }
+
+  if(braceBuf.length > 400000){
+    dbgRX("WARN: braceBuf overflow -> reset");
+    resetRxBuffer();
+  }
+}
+
+function feedText(str){
+  // FAST PATH: newline
+  lineBuf += str;
   if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
 
   let idx;
   while((idx = lineBuf.indexOf("\n")) >= 0){
-    const line = lineBuf.slice(0, idx).trim();
+    const line = lineBuf.slice(0, idx);
     lineBuf = lineBuf.slice(idx+1);
 
-    if(!line) continue;
-
+    // se è JSON completo, ok
     try{
-      const obj = JSON.parse(line);
-      dbgRX(line);
-      handleObj(obj, line);
+      const t = line.trim();
+      if(!t) continue;
+      const obj = JSON.parse(t);
+      dbgRX(t);
+      handleObj(obj, t);
+      continue;
     }catch(e){
-      dbgRX("LINE PARSE FAIL: " + line.slice(0,220));
+      // fallback: magari è spezzato o attaccato
+      feedBraceParser(line + "\n");
     }
   }
+
+  // FALLBACK: anche senza newline (PC spesso fa chunk strani)
+  feedBraceParser(str);
 }
 
 /* ========================= RAW helpers ========================= */
@@ -1351,8 +1418,8 @@ $("btnConnect").onclick = async ()=>{
     chTX = await svc.getCharacteristic(UUID_TX);
     chRX = await svc.getCharacteristic(UUID_RX);
 
-    lineBuf = ""; // <-- AGGIUNGI QUESTA RIGA
-
+    resetRxBuffer();
+    
     await chTX.startNotifications();
     chTX.addEventListener("characteristicvaluechanged", onNotify);
 
