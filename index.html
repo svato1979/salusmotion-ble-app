@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SalusMotion_BLE</title>
+  <title>SalusMotion WebApp</title>
   <style>
     :root{
       --bg:#f6f7fb;--card:#fff;--text:#111;--muted:#6b7280;--line:#e5e7eb;
@@ -14,27 +14,25 @@
 
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0}
+    .muted{color:var(--muted);font-size:12px}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
+    .hidden{display:none}
+    .spacer{flex:1}
 
     button{padding:10px 12px;border-radius:12px;border:0;background:#111;color:#fff;font-weight:800;cursor:pointer}
     button.secondary{background:#fff;color:#111;border:1px solid #111}
     button.danger{background:#fff;color:var(--bad);border:1px solid var(--bad)}
     button:disabled{opacity:.45;cursor:not-allowed}
-
     select,input{padding:10px;border-radius:12px;border:1px solid var(--line);background:#fff}
-    .muted{color:var(--muted);font-size:12px}
 
     .badge{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:800;font-size:12px;background:#eee}
     .badge.ok{background:#e8f8ee;color:var(--ok)}
     .badge.warn{background:#fff7e6;color:var(--warn)}
     .badge.bad{background:#ffe9e9;color:var(--bad)}
+    .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:900}
 
-    .grid{display:grid;grid-template-columns:140px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
     .progress{height:12px;background:#eee;border-radius:999px;overflow:hidden;margin-top:10px}
     .bar{height:100%;width:0%;background:#111;transition:width .2s ease}
-
-    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;white-space:pre-wrap}
-    .hidden{display:none}
-    .pill{padding:6px 10px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:800}
 
     .topbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 14px 0}
     .tabs{display:flex;gap:8px;align-items:center}
@@ -43,18 +41,17 @@
       background:#fff;color:#111;font-weight:900;cursor:pointer;
     }
     .tab.active{background:#111;color:#fff;border-color:#111}
-    .spacer{flex:1}
 
-    .kpiRow{display:grid;grid-template-columns:repeat(4,minmax(160px,1fr));gap:10px}
-    @media (max-width:900px){ .kpiRow{grid-template-columns:repeat(2,minmax(160px,1fr));} }
-
+    /* KPI cards (Workout) */
+    .kpiRow{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px}
+    @media (max-width:900px){ .kpiRow{grid-template-columns:repeat(1,minmax(160px,1fr));} }
     .kpi{
-      border:1px solid var(--line);border-radius:16px;padding:12px;background:#fff;
-      display:flex;flex-direction:column;gap:6px;
+      border:1px solid var(--line);border-radius:16px;padding:14px;background:#fff;
+      display:flex;flex-direction:column;gap:8px;
     }
-    .kpi .label{font-size:12px;color:var(--muted);font-weight:800}
-    .kpi .value{font-size:26px;font-weight:900;line-height:1}
-    .kpi .sub{font-size:12px;color:var(--muted);font-weight:800}
+    .kpi .label{font-size:12px;color:var(--muted);font-weight:900}
+    .kpi .value{font-size:34px;font-weight:950;line-height:1}
+    .kpi .sub{font-size:12px;color:var(--muted);font-weight:900;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
     .list{display:flex;flex-direction:column;gap:10px}
     .item{
@@ -63,13 +60,16 @@
       cursor:pointer;
     }
     .item .left{display:flex;flex-direction:column;gap:2px}
-    .item .title{font-weight:900}
-    .item .meta{font-size:12px;color:var(--muted);font-weight:800}
+    .item .title{font-weight:950}
+    .item .meta{font-size:12px;color:var(--muted);font-weight:900}
     .item .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-    .miniBtn{padding:8px 10px;border-radius:12px;font-size:12px;font-weight:900}
+    .miniBtn{padding:8px 10px;border-radius:12px;font-size:12px;font-weight:950}
     .miniBtn.secondary{background:#fff;color:#111;border:1px solid #111}
     .miniBtn.danger{background:#fff;color:var(--bad);border:1px solid var(--bad)}
 
+    .divider{height:1px;background:var(--line);margin:10px 0}
+
+    /* Modal */
     .modal{
       position:fixed;inset:0;background:rgba(0,0,0,.35);
       display:none;align-items:center;justify-content:center;padding:16px;
@@ -80,20 +80,26 @@
       padding:14px;
     }
     .sheetHeader{display:flex;align-items:center;gap:10px}
-    .sheetHeader .title{font-weight:900;font-size:16px}
+    .sheetHeader .title{font-weight:950;font-size:16px}
     .sheetBody{margin-top:10px}
-    .divider{height:1px;background:var(--line);margin:10px 0}
-    .sparkWrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-    svg{display:block}
+
+    /* simple grid */
+    .grid{display:grid;grid-template-columns:160px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
+
+    /* fatica badge */
+    .fatBadge{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:950;font-size:12px}
+    .fatLow{background:#e8f8ee;color:var(--ok)}
+    .fatMid{background:#fff7e6;color:var(--warn)}
+    .fatHigh{background:#ffe9e9;color:var(--bad)}
   </style>
 </head>
 
 <body>
-  <h2>SalusMotion_BLE</h2>
+  <h2>SalusMotion</h2>
 
   <div class="topbar">
     <div class="tabs">
-      <button class="tab active" id="tabCal" type="button">Calibrazione</button>
+      <button class="tab active" id="tabDev" type="button">Sviluppo</button>
       <button class="tab" id="tabWkt" type="button" disabled>Workout</button>
     </div>
 
@@ -103,8 +109,8 @@
     <span id="quickEx" class="pill">—</span>
   </div>
 
-  <!-- PAGE 1 -->
-  <div id="pageCal">
+  <!-- PAGE 1: SVILUPPO -->
+  <div id="pageDev">
 
     <div class="card">
       <div class="row">
@@ -112,10 +118,19 @@
         <button class="secondary" id="btnMeta" type="button" disabled>Meta</button>
         <span id="connBadge" class="badge">DISCONNECTED</span>
 
-        <label class="row" style="margin-left:auto;gap:8px">
+        <span class="spacer"></span>
+
+        <span id="rtcStatus" class="pill">RTC: —</span>
+        <button class="secondary" id="btnSyncTime" type="button" disabled>Sync time</button>
+
+        <label class="row" style="gap:8px">
           <input id="dbgToggle" type="checkbox">
           <span class="muted">Debug</span>
         </label>
+      </div>
+
+      <div class="muted" style="margin-top:8px">
+        Alla connessione: sync automatico LOG + sync RTC (ora del telefono → device).
       </div>
     </div>
 
@@ -123,9 +138,7 @@
       <div class="row" style="justify-content:space-between">
         <b>Batteria</b><span id="batBadge" class="badge">—</span>
       </div>
-
       <div class="progress"><div id="batBar" class="bar"></div></div>
-
       <div class="grid">
         <div>Carica</div><div id="batPct">—</div>
         <div>Tensione</div><div id="batV">—</div>
@@ -143,7 +156,7 @@
         <select id="exSelect" style="min-width:320px" disabled></select>
         <button class="secondary" id="btnSetEx" type="button" disabled>Set</button>
 
-        <span style="flex:1"></span>
+        <span class="spacer"></span>
 
         <button class="secondary" id="btnDisp" type="button" disabled>Schermo OFF</button>
         <span id="dispBadge" class="badge">—</span>
@@ -161,7 +174,7 @@
         <select id="rawSelect" style="min-width:320px" disabled></select>
         <button id="btnRawDl" type="button" disabled>Download</button>
         <button class="secondary" id="btnRawDlAll" type="button" disabled>Download ALL</button>
-        <button class="danger" id="btnRawClear" type="button" disabled>Clear raw (ESP32)</button>
+        <button class="danger" id="btnRawClear" type="button" disabled>Clear raw (device)</button>
         <span class="pill" id="rawStatus">—</span>
       </div>
 
@@ -173,7 +186,7 @@
     </div>
 
     <div class="card">
-      <b>Workout LOG (sets.jsonl) → Sync nella webapp</b>
+      <b>Workout LOG (sets.jsonl)</b>
       <div class="row">
         <button class="secondary" id="btnLogSync" type="button" disabled>Sync LOG</button>
         <button class="danger" id="btnLogClear" type="button" disabled>Clear LOG (device)</button>
@@ -181,7 +194,7 @@
       </div>
       <div class="progress"><div id="logBar" class="bar"></div></div>
       <div class="muted" style="margin-top:6px">
-        Appena ti colleghi fa sync automatico (tipo smartwatch). Nessun download su PC.
+        Sync automatico (tipo smartwatch): i set finiscono nello storico del browser.
       </div>
     </div>
 
@@ -189,9 +202,7 @@
       <b>System</b>
       <div class="row">
         <button class="danger" id="btnFormat" type="button" disabled>Format FS (ALL)</button>
-      </div>
-      <div class="muted" style="margin-top:6px">
-        Cancella RAW + LOG + reset next_id / ack_id.
+        <span class="muted">Cancella RAW + LOG + reset id.</span>
       </div>
     </div>
 
@@ -200,85 +211,62 @@
       <div class="muted">Mostra raw RX/TX (max 8000 chars).</div>
       <div class="mono" id="dbgLog" style="margin-top:10px">-</div>
     </div>
-
   </div>
 
-  <!-- PAGE 2 -->
+  <!-- PAGE 2: WORKOUT (utente) -->
   <div id="pageWkt" class="hidden">
 
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
         <div style="display:flex;flex-direction:column;gap:4px">
           <b>Workout</b>
-          <div class="muted">LIVE + ultimo set + storico (salvato nel browser).</div>
+          <div class="muted">Ultimo set + storico (salvato nel browser).</div>
         </div>
 
         <div class="row" style="gap:8px">
           <button class="secondary miniBtn" id="btnExportJson" type="button">Export JSON</button>
           <button class="secondary miniBtn" id="btnExportCsv" type="button">Export CSV</button>
-          <button class="danger miniBtn" id="btnClearHistory" type="button">Clear storico (browser)</button>
+          <button class="danger miniBtn" id="btnClearHistory" type="button">Clear storico</button>
         </div>
       </div>
+
       <div class="muted" style="margin-top:8px">
         <span class="pill" id="syncMini">Sync: —</span>
       </div>
     </div>
 
+    <!-- 3 cards + contesto -->
     <div class="kpiRow">
       <div class="kpi">
-        <div class="label">LIVE reps</div>
-        <div class="value" id="liveReps">—</div>
-        <div class="sub" id="liveEx">—</div>
+        <div class="label">Reps (ultimo set)</div>
+        <div class="value" id="kReps">—</div>
+        <div class="sub" id="kCtx">—</div>
       </div>
+
       <div class="kpi">
-        <div class="label">TUT live</div>
-        <div class="value" id="liveTut">—</div>
-        <div class="sub" id="livePhase">phase —</div>
+        <div class="label">TUT (ultimo set)</div>
+        <div class="value" id="kTut">—</div>
+        <div class="sub">Tempo sotto tensione</div>
       </div>
+
       <div class="kpi">
-        <div class="label">Segnale (cnv/env)</div>
-        <div class="value" id="liveEnv">—</div>
-        <div class="sub" id="liveThr">thr — / —</div>
-      </div>
-      <div class="kpi">
-        <div class="label">Qualità (ultimo set)</div>
-        <div class="value" id="lastQ">—</div>
-        <div class="sub sparkWrap">
-          <span class="pill" id="lastBadge">—</span>
-          <svg id="spark" width="140" height="26" viewBox="0 0 140 26" aria-label="trend qualità"></svg>
+        <div class="label">Fatica (velLoss)</div>
+        <div class="value" id="kFat">—</div>
+        <div class="sub">
+          <span id="kFatBadge" class="fatBadge fatLow">—</span>
+          <span class="muted">stima da calo velocità</span>
         </div>
       </div>
     </div>
 
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Ultimo set</b>
-        <span id="lastSetMini" class="pill">—</span>
-      </div>
-
-      <div class="grid">
-        <div>Esercizio</div><div id="lastExercise">—</div>
-        <div>Reps</div><div id="lastReps">—</div>
-        <div>TUT</div><div id="lastTut">—</div>
-        <div>Quality</div><div id="lastQuality">—</div>
-        <div>VelLoss</div><div id="lastVel">—</div>
-        <div>RomLoss</div><div id="lastRom">—</div>
-        <div>RIR est / target</div><div id="lastRir">—</div>
-        <div>RAW file</div><div id="lastRaw">—</div>
-      </div>
-
-      <div class="muted" id="lastHint" style="margin-top:8px">
-        Quando il FW manda <code>{"type":"set"...}</code>, qui compare il riepilogo.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <b>Sets salvati</b>
+        <b>Storico set</b>
         <span class="pill" id="histCount">0</span>
       </div>
+
       <div class="muted" style="margin-top:6px">
-        Click su un set per aprire il dettaglio. (Persistente nel browser)
+        Click su un set per aprire il dettaglio (include anche campi “nascosti” per debug/ML).
       </div>
 
       <div class="divider"></div>
@@ -311,7 +299,7 @@ const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
 const $ = (id)=>document.getElementById(id);
 
 /* ========================= App storage ========================= */
-const STORE_KEY = "salusmotion_sets_v2";        // bump version
+const STORE_KEY = "salusmotion_sets_v3";        // bump version
 const STORE_SYNC = "salusmotion_last_sync_v1"; // timestamp (ms)
 
 /* ========================= BLE state ========================= */
@@ -320,12 +308,9 @@ let meta=null;
 let dispOn=true;
 
 /* ========================= Debug ========================= */
-let jsonBuf="", depth=0, inStr=false, esc=false;
-
 $("dbgToggle").addEventListener("change",()=>{
   $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
 });
-
 function dbgLine(prefix, s){
   if(!$("dbgToggle").checked) return;
   $("dbgLog").textContent = (`${prefix} ${s}\n\n` + $("dbgLog").textContent).slice(0,8000);
@@ -336,7 +321,6 @@ const dbgRX = (s)=>dbgLine("RX:", s);
 /* ========================= Workout state ========================= */
 let sets = loadSets();
 let lastSet = pickLastSet(sets);
-let live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
 
 /* ========================= RAW download state ========================= */
 let rawList = [];
@@ -352,6 +336,7 @@ let logSyncQueued = false;
 function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
 function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 function nowMs(){ return Date.now(); }
+function nowEpoch(){ return Math.floor(Date.now()/1000); }
 
 function isConnected(){
   return !!(dev && dev.gatt && dev.gatt.connected && chRX && chTX);
@@ -360,10 +345,8 @@ function isConnected(){
 function setConn(on){
   $("connBadge").textContent = on ? "CONNECTED" : "DISCONNECTED";
   $("connBadge").className = "badge " + (on ? "ok" : "");
-
   $("quickConn").textContent = on ? "CONNECTED" : "DISCONNECTED";
   $("quickConn").className = "badge " + (on ? "ok" : "");
-
   $("tabWkt").disabled = !on;
 }
 
@@ -436,14 +419,14 @@ function fillExercises(exercises, exIndex){
 /* ========================= Tabs ========================= */
 function showPage(which){
   const isWkt = (which === "wkt");
-  $("pageCal").classList.toggle("hidden", isWkt);
+  $("pageDev").classList.toggle("hidden", isWkt);
   $("pageWkt").classList.toggle("hidden", !isWkt);
-  $("tabCal").classList.toggle("active", !isWkt);
+  $("tabDev").classList.toggle("active", !isWkt);
   $("tabWkt").classList.toggle("active", isWkt);
 
   if(isWkt) renderAllWorkout();
 }
-$("tabCal").onclick = ()=>showPage("cal");
+$("tabDev").onclick = ()=>showPage("dev");
 $("tabWkt").onclick = ()=>{
   showPage("wkt");
   if(isConnected()) ensureLogSyncedSoon();
@@ -456,32 +439,24 @@ async function writeCmd(obj){
   dbgTX(s);
   await chRX.writeValue(new TextEncoder().encode(s));
 }
-
 function onNotify(ev){
   const chunk = new TextDecoder().decode(ev.target.value);
   feedText(chunk);
 }
 
 /* ========================= Reset/disconnect ========================= */
-function resetStreamParser(){
-  jsonBuf = "";
-  depth = 0;
-  inStr = false;
-  esc = false;
-}
+let lineBuf = "";
+function resetRxBuffer(){ lineBuf = ""; }
 
 function hardResetUiDisconnected(){
-  // BLE refs
   server=null; svc=null; chTX=null; chRX=null;
   meta=null;
 
-  // ops state
   dl=null; dlAll=null;
   logDl=null; logSyncInFlight=false; logSyncQueued=false;
 
   setConn(false);
 
-  // buttons
   $("btnMeta").disabled=true;
 
   $("btnRawInfo").disabled=true;
@@ -507,8 +482,11 @@ function hardResetUiDisconnected(){
   $("dispBadge").textContent="—";
   setQuickExercise("—");
 
+  $("btnSyncTime").disabled=true;
+  $("rtcStatus").textContent = "RTC: —";
+
   setLogStatus("DISCONNECTED", 0);
-  resetStreamParser();
+  resetRxBuffer();
 }
 
 async function cleanupBle(){
@@ -519,22 +497,14 @@ async function cleanupBle(){
     }
   }catch(e){}
 }
-
 async function onDisconnected(){
   await cleanupBle();
   hardResetUiDisconnected();
-  resetRxBuffer();
 }
 
-/* ========================= JSON stream parser ========================= */
-let lineBuf = "";
-function resetRxBuffer(){
-  lineBuf = "";
-}
+/* ========================= JSON line stream parser ========================= */
 function feedText(str){
   lineBuf += str;
-
-  // protezione: evita buffer infinito se arriva spazzatura senza newline
   if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
 
   let idx;
@@ -607,7 +577,6 @@ function handleDlFail(reason){
       return;
     }
   }
-
   setRawStatus(`Errore download: ${reason}`);
 }
 
@@ -680,11 +649,9 @@ function setLogStatus(text, pct){
   const mini = $("syncMini");
   if(mini) mini.textContent = "Sync: " + text;
 }
-
 function markLastSyncOk(){
   try{ localStorage.setItem(STORE_SYNC, String(nowMs())); }catch(e){}
 }
-
 function getLastSyncMs(){
   try{
     const s = localStorage.getItem(STORE_SYNC);
@@ -692,25 +659,21 @@ function getLastSyncMs(){
     return Number.isFinite(n) ? n : 0;
   }catch(e){ return 0; }
 }
-
 function fmtTime(ms){
   if(!ms) return "mai";
   return new Date(ms).toLocaleString();
 }
-
 function ensureLogSyncedSoon(){
   const last = getLastSyncMs();
   const stale = !last || (nowMs()-last) > 120000;
   if(stale) requestLogSync("auto");
   else setLogStatus("OK · " + fmtTime(last), 100);
 }
-
 async function requestLogSync(reason="manual"){
   if(!isConnected()){
     setLogStatus("Non connesso", 0);
     return;
   }
-
   if(logSyncInFlight){
     logSyncQueued = true;
     setLogStatus("Sync in corso… (queued)", 0);
@@ -728,7 +691,6 @@ async function requestLogSync(reason="manual"){
     setLogStatus("Errore LOG_GET", 0);
   }
 }
-
 function finishLogSyncAndMaybeRepeat(){
   logSyncInFlight = false;
   if(logSyncQueued){
@@ -755,6 +717,9 @@ function pickLastSet(arr){
     const ai = Number(a.id); const bi = Number(b.id);
     const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
     if(aHas && bHas) return bi-ai;
+    const at = Number(a.ts_end||0) ? Number(a.ts_end) : 0;
+    const bt = Number(b.ts_end||0) ? Number(b.ts_end) : 0;
+    if(at && bt) return bt-at;
     return Number(b.ms||0) - Number(a.ms||0);
   });
   return copy[0] || null;
@@ -775,62 +740,50 @@ function fmt0(x, suf=""){
   if(n===null) return "—";
   return Math.round(n) + suf;
 }
-function qualityBadge(q){
-  const n = num(q);
-  if(n===null) return {t:"—", c:""};
-  if(n>=85) return {t:"Ottimo", c:"ok"};
-  if(n>=65) return {t:"Buono", c:"warn"};
-  return {t:"Da migliorare", c:"bad"};
+function fmtWhen(s){
+  // prefer ts_end (epoch seconds), fallback ms (local)
+  const te = Number(s?.ts_end || 0);
+  if(Number.isFinite(te) && te > 1000000000){
+    return new Date(te*1000).toLocaleString();
+  }
+  const ms = Number(s?.ms || 0);
+  if(Number.isFinite(ms) && ms > 1000000000){
+    return new Date(ms).toLocaleString();
+  }
+  return "—";
+}
+function fatigueClass(vl){
+  const n = num(vl);
+  if(n===null) return {t:"—", cls:"fatLow"};
+  if(n < 15) return {t:"Bassa", cls:"fatLow"};
+  if(n < 35) return {t:"Media", cls:"fatMid"};
+  return {t:"Alta", cls:"fatHigh"};
 }
 
-function renderLive(){
-  $("liveReps").textContent = (live.reps ?? "—");
-  $("liveTut").textContent  = (live.tut_s==null) ? "—" : fmtS(live.tut_s);
-  $("liveEnv").textContent  = (live.cnv==null) ? "—" : fmt1(live.cnv);
-  $("livePhase").textContent = "phase " + (live.phase ?? "—");
-  $("liveThr").textContent =
-    "thr " + (live.thr_hi==null ? "—" : fmt1(live.thr_hi)) + " / " +
-    (live.thr_lo==null ? "—" : fmt1(live.thr_lo));
-  $("liveEx").textContent = live.exercise || "—";
-}
+function renderTopKPIs(){
+  const s = pickLastSet(sets);
+  lastSet = s;
 
-function renderLastSet(){
-  const s = lastSet;
   if(!s){
-    $("lastSetMini").textContent="—";
-    $("lastExercise").textContent="—";
-    $("lastReps").textContent="—";
-    $("lastTut").textContent="—";
-    $("lastQuality").textContent="—";
-    $("lastVel").textContent="—";
-    $("lastRom").textContent="—";
-    $("lastRir").textContent="—";
-    $("lastRaw").textContent="—";
-    $("lastQ").textContent="—";
-    $("lastBadge").textContent="—";
-    $("lastBadge").className="pill";
-    drawSpark();
+    $("kReps").textContent="—";
+    $("kTut").textContent="—";
+    $("kFat").textContent="—";
+    $("kCtx").textContent="—";
+    $("kFatBadge").textContent="—";
+    $("kFatBadge").className="fatBadge fatLow";
     return;
   }
 
-  $("lastSetMini").textContent = `${s.exercise || "—"} · reps ${s.reps ?? "—"} · Q ${fmt0(s.quality)}`;
-  $("lastExercise").textContent = s.exercise || "—";
-  $("lastReps").textContent = (s.reps ?? "—");
-  $("lastTut").textContent = fmtS(s.tut_s);
-  $("lastQuality").textContent = fmt0(s.quality);
-  $("lastVel").textContent = fmt1(s.velLoss, "%");
-  $("lastRom").textContent = fmt1(s.romLoss, "%");
-  $("lastRir").textContent = (s.rir_est==null || s.target_rir==null)
-    ? "—"
-    : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`;
-  $("lastRaw").textContent = s.raw || "—";
+  $("kReps").textContent = String(s.reps ?? "—");
+  $("kTut").textContent  = fmtS(s.tut_s);
+  $("kFat").textContent  = fmt0(s.velLoss, "%");
 
-  $("lastQ").textContent = fmt0(s.quality);
-  const b = qualityBadge(s.quality);
-  $("lastBadge").textContent = b.t;
-  $("lastBadge").className = "pill badge " + b.c;
+  const ctx = `${s.exercise || "—"} · ${fmtWhen(s)}`;
+  $("kCtx").textContent = ctx;
 
-  drawSpark();
+  const f = fatigueClass(s.velLoss);
+  $("kFatBadge").textContent = f.t;
+  $("kFatBadge").className = "fatBadge " + f.cls;
 }
 
 function renderHistory(){
@@ -843,6 +796,11 @@ function renderHistory(){
     const ai = Number(a.id); const bi = Number(b.id);
     const aHas = Number.isFinite(ai); const bHas = Number.isFinite(bi);
     if(aHas && bHas) return bi-ai;
+
+    const at = Number(a.ts_end||0) ? Number(a.ts_end) : 0;
+    const bt = Number(b.ts_end||0) ? Number(b.ts_end) : 0;
+    if(at && bt) return bt-at;
+
     return Number(b.ms||0) - Number(a.ms||0);
   });
 
@@ -855,11 +813,11 @@ function renderHistory(){
 
     const title = document.createElement("div");
     title.className="title";
-    title.textContent = `${s.exercise || "—"} · reps ${s.reps ?? "—"} · Q ${fmt0(s.quality)}`;
+    title.textContent = `${s.exercise || "—"} · ${fmtWhen(s)}`;
 
     const metaLine = document.createElement("div");
     metaLine.className="meta";
-    metaLine.textContent = `id ${s.id ?? "—"} · TUT ${fmtS(s.tut_s)} · vL ${fmt1(s.velLoss,"%")} · rL ${fmt1(s.romLoss,"%")}`;
+    metaLine.textContent = `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · Fatica ${fmt0(s.velLoss,"%")}`;
 
     left.appendChild(title);
     left.appendChild(metaLine);
@@ -867,10 +825,10 @@ function renderHistory(){
     const right = document.createElement("div");
     right.className="right";
 
-    const b = qualityBadge(s.quality);
+    const f = fatigueClass(s.velLoss);
     const badge = document.createElement("span");
-    badge.className = "badge " + b.c;
-    badge.textContent = b.t;
+    badge.className = "fatBadge " + f.cls;
+    badge.textContent = f.t;
 
     const btn = document.createElement("button");
     btn.className="miniBtn secondary";
@@ -890,44 +848,6 @@ function renderHistory(){
   }
 }
 
-function drawSpark(){
-  const svg = $("spark");
-  const w = 140, h = 26, pad=2;
-  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  svg.innerHTML = "";
-
-  const qs = sets.slice(-20).map(s=>num(s.quality)).filter(v=>v!==null);
-  if(qs.length < 2){
-    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
-    line.setAttribute("x1","2"); line.setAttribute("y1", String(h/2));
-    line.setAttribute("x2", String(w-2)); line.setAttribute("y2", String(h/2));
-    line.setAttribute("stroke","#ddd"); line.setAttribute("stroke-width","2");
-    svg.appendChild(line);
-    return;
-  }
-
-  const min = Math.min(...qs);
-  const max = Math.max(...qs);
-  const span = (max-min) || 1;
-  const step = (w - pad*2) / (qs.length - 1);
-
-  let d = "";
-  qs.forEach((v,i)=>{
-    const x = pad + step*i;
-    const y = pad + (h - pad*2) * (1 - (v - min)/span);
-    d += (i===0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
-  });
-
-  const path = document.createElementNS("http://www.w3.org/2000/svg","path");
-  path.setAttribute("d", d.trim());
-  path.setAttribute("fill","none");
-  path.setAttribute("stroke","#111");
-  path.setAttribute("stroke-width","2");
-  path.setAttribute("stroke-linecap","round");
-  path.setAttribute("stroke-linejoin","round");
-  svg.appendChild(path);
-}
-
 function openDetail(s){
   $("modal").classList.add("open");
   $("mTitle").textContent = `Set id ${s.id ?? "—"} · ${s.exercise || "—"}`;
@@ -942,18 +862,24 @@ function openDetail(s){
     g.appendChild(a); g.appendChild(b);
   };
 
+  // "utente"
   add("Esercizio", s.exercise || "—");
-  add("ID", String(s.id ?? "—"));
+  add("Data/Ora", fmtWhen(s));
   add("Reps", String(s.reps ?? "—"));
   add("TUT", fmtS(s.tut_s));
+  add("Fatica (velLoss)", fmt1(s.velLoss, "%"));
+
+  // "debug / avanzato" (mascherato qui dentro)
   add("Quality", fmt0(s.quality));
-  add("VelLoss", fmt1(s.velLoss, "%"));
-  add("RomLoss", fmt1(s.romLoss, "%"));
   add("Dirty", fmt1(s.dirty, "%"));
+  add("RomLoss", fmt1(s.romLoss, "%"));
   add("RIR est / target", (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`);
   add("RAW file", s.raw || "—");
-  add("Timestamp ms", String(s.ms ?? "—"));
+  add("ID", String(s.id ?? "—"));
+  add("ms", String(s.ms ?? "—"));
+  add("ts_end", String(s.ts_end ?? "—"));
   add("exIndex", String(s.exIndex ?? s.exindex ?? "—"));
+
   if(s.thr && typeof s.thr === "object"){
     add("thr.hi", String(s.thr.hi ?? "—"));
     add("thr.lo", String(s.thr.lo ?? "—"));
@@ -981,10 +907,8 @@ function downloadText(filename, text, mime="application/json"){
 }
 
 function renderAllWorkout(){
+  renderTopKPIs();
   renderHistory();
-  renderLive();
-  lastSet = pickLastSet(sets);
-  renderLastSet();
   const last = getLastSyncMs();
   if(last) setLogStatus("OK · " + fmtTime(last), 100);
   else setLogStatus("mai", 0);
@@ -994,12 +918,13 @@ function renderAllWorkout(){
 function fingerprintSet(s){
   return [
     s.id ?? "",
+    s.ts_end ?? "",
     s.ms ?? "",
     s.exercise ?? "",
     s.exIndex ?? s.exindex ?? "",
     s.reps ?? "",
     num(s.tut_s)?.toFixed(3) ?? "",
-    num(s.quality)?.toFixed(3) ?? "",
+    num(s.velLoss)?.toFixed(3) ?? "",
     s.raw ?? ""
   ].join("|");
 }
@@ -1052,16 +977,21 @@ function mergeSetsFromDevice(newArr){
   return {added, total:sets.length};
 }
 
-/* ========================= handle incoming objects ========================= */
+/* ========================= Incoming objects ========================= */
 function handleObj(obj, raw){
   if(!obj) return;
-  dbgRX(raw);
 
   if(obj.bat) updateBattery(obj.bat);
   if(obj.type==="bat" && obj.bat) updateBattery(obj.bat);
 
   if(obj.type==="disp"){
     setDispUI(!!obj.on);
+    return;
+  }
+
+  if(obj.type==="time_set"){
+    const utc = obj.utc ?? "";
+    $("rtcStatus").textContent = "RTC: " + (utc || (obj.epoch ?? "OK"));
     return;
   }
 
@@ -1081,11 +1011,13 @@ function handleObj(obj, raw){
     $("btnDisp").disabled=false;
     setDispUI(typeof obj.disp === "boolean" ? obj.disp : true);
 
+    // enable manual time sync
+    $("btnSyncTime").disabled = false;
+
+    // auto: sync LOG soon (after meta)
     requestLogSync("auto");
     return;
   }
-
-  if(obj.type==="hello") return;
 
   // ---------- LOG protocol ----------
   if(obj.type==="log_err"){
@@ -1166,24 +1098,11 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: LIVE ----------
-  if(obj.type==="live"){
-    live.reps = (obj.reps ?? live.reps);
-    live.tut_s = (obj.tut_s ?? live.tut_s);
-    live.cnv = (obj.cnv ?? obj.env ?? live.cnv);
-    live.thr_hi = (obj.thr_hi ?? live.thr_hi);
-    live.thr_lo = (obj.thr_lo ?? live.thr_lo);
-    live.phase = (obj.phase ?? live.phase);
-    live.exercise = (obj.exercise ?? live.exercise);
-    live.exindex = (obj.exindex ?? obj.exIndex ?? live.exindex);
-    renderLive();
-    return;
-  }
-
   // ---------- WORKOUT: SET ----------
   if(obj.type==="set"){
     const s = {...obj};
 
+    // prefer ts_end from FW; if missing keep ms
     if(s.ms == null) s.ms = nowMs();
     if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
 
@@ -1230,7 +1149,7 @@ function handleObj(obj, raw){
     $("rawSelect").disabled=true;
     $("btnRawDl").disabled=true;
     $("btnRawDlAll").disabled=true;
-    setRawStatus(`RAW cancellati su ESP32 (${obj.n ?? 0})`);
+    setRawStatus(`RAW cancellati su device (${obj.n ?? 0})`);
     setRawBar(0);
     return;
   }
@@ -1314,8 +1233,6 @@ function handleObj(obj, raw){
 // Connect
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
-  
-  resetStreamParser();
 
   try{
     meta=null;
@@ -1334,8 +1251,8 @@ $("btnConnect").onclick = async ()=>{
     $("dispBadge").textContent="—";
     setQuickExercise("—");
 
-    live = { reps:null, tut_s:null, cnv:null, thr_hi:null, thr_lo:null, phase:null, exercise:null, exindex:null };
-    renderLive();
+    $("rtcStatus").textContent = "RTC: sync…";
+    $("btnSyncTime").disabled = true;
 
     setLogStatus("Connessione…", 0);
 
@@ -1351,7 +1268,7 @@ $("btnConnect").onclick = async ()=>{
     chTX = await svc.getCharacteristic(UUID_TX);
     chRX = await svc.getCharacteristic(UUID_RX);
 
-    lineBuf = ""; // <-- AGGIUNGI QUESTA RIGA
+    resetRxBuffer();
 
     await chTX.startNotifications();
     chTX.addEventListener("characteristicvaluechanged", onNotify);
@@ -1359,8 +1276,13 @@ $("btnConnect").onclick = async ()=>{
     $("btnMeta").disabled=false;
     setConn(true);
 
+    // HELLO + META
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
+
+    // RTC sync phone -> device
+    await writeCmd({cmd:"SET_TIME", epoch: nowEpoch()});
+
   }catch(e){
     console.error(e);
     await onDisconnected();
@@ -1370,6 +1292,14 @@ $("btnConnect").onclick = async ()=>{
 
 // META manual
 $("btnMeta").onclick = async ()=>{ try{ await writeCmd({cmd:"META"}); }catch(e){} };
+
+// Sync time manual
+$("btnSyncTime").onclick = async ()=>{
+  try{
+    $("rtcStatus").textContent = "RTC: sync…";
+    await writeCmd({cmd:"SET_TIME", epoch: nowEpoch()});
+  }catch(e){}
+};
 
 // RAW list
 $("btnRawInfo").onclick = async ()=>{
@@ -1466,8 +1396,9 @@ $("btnFormat").onclick = async ()=>{
 $("btnExportJson").onclick = ()=>{
   downloadText("salusmotion_sets.json", JSON.stringify(sets, null, 2), "application/json");
 };
+
 $("btnExportCsv").onclick = ()=>{
-  const cols = ["id","ms","exercise","exIndex","reps","tut_s","quality","velLoss","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
+  const cols = ["id","ts_end","ms","exercise","exIndex","reps","tut_s","velLoss","quality","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
   const escCsv = (v)=>{
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
@@ -1476,6 +1407,7 @@ $("btnExportCsv").onclick = ()=>{
   for(const s of sets) lines.push(cols.map(c=>escCsv(s[c])).join(","));
   downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
 };
+
 $("btnClearHistory").onclick = ()=>{
   const x = prompt("Scrivi CLEAR per cancellare lo storico della webapp:");
   if(x !== "CLEAR") return;
@@ -1491,7 +1423,6 @@ hardResetUiDisconnected();
 sets = loadSets();
 lastSet = pickLastSet(sets);
 renderAllWorkout();
-renderLive();
 </script>
 </body>
 </html>
