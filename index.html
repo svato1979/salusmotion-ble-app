@@ -989,10 +989,11 @@ function handleObj(obj, raw){
     return;
   }
 
-  if(obj.type==="time_set"){
-    const utc = obj.utc ?? "";
-    $("rtcStatus").textContent = "RTC: " + (utc || (obj.epoch ?? "OK"));
-    return;
+   if(obj.type === "time_set"){
+   dbgRX(raw);
+   // Mostralo da qualche parte, anche solo nel log status:
+   setLogStatus(`TIME OK · ${obj.utc || obj.epoch}`, 100);
+   return;
   }
 
   if(obj.type==="meta"){
@@ -1280,8 +1281,9 @@ $("btnConnect").onclick = async ()=>{
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
 
-    // RTC sync phone -> device
-    await writeCmd({cmd:"SET_TIME", epoch: nowEpoch()});
+    // ✅ SET_TIME (UTC epoch seconds)
+    const epoch = Math.floor(Date.now() / 1000);
+    await writeCmd({ cmd:"SET_TIME", epoch });
 
   }catch(e){
     console.error(e);
