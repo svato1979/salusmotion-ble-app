@@ -130,7 +130,18 @@
       </div>
 
       <div class="muted" style="margin-top:8px">
-        Alla connessione: sync automatico LOG + sync RTC (ora del telefono → device).
+        Alla connessione: sync automatico LOG + sync RTC (ora del telefono → device). (RTC stampato in UTC sul FW)
+      </div>
+    </div>
+
+    <!-- ✅ EXPORT SPOSTATO QUI -->
+    <div class="card">
+      <b>Export storico (browser)</b>
+      <div class="row" style="margin-top:10px">
+        <button class="secondary" id="btnExportJson" type="button">Export JSON</button>
+        <button class="secondary" id="btnExportCsv" type="button">Export CSV</button>
+        <button class="danger" id="btnClearHistory" type="button">Clear storico (browser)</button>
+        <span class="muted">Include sempre <b>Data/Ora</b> (campo <code>date_time</code>).</span>
       </div>
     </div>
 
@@ -220,13 +231,7 @@
       <div class="row" style="justify-content:space-between;align-items:center">
         <div style="display:flex;flex-direction:column;gap:4px">
           <b>Workout</b>
-          <div class="muted">Ultimo set + storico (salvato nel browser).</div>
-        </div>
-
-        <div class="row" style="gap:8px">
-          <button class="secondary miniBtn" id="btnExportJson" type="button">Export JSON</button>
-          <button class="secondary miniBtn" id="btnExportCsv" type="button">Export CSV</button>
-          <button class="danger miniBtn" id="btnClearHistory" type="button">Clear storico</button>
+          <div class="muted">LIVE + ultimo set + storico (salvato nel browser).</div>
         </div>
       </div>
 
@@ -235,7 +240,18 @@
       </div>
     </div>
 
-    <!-- 3 cards + contesto -->
+    <!-- ✅ LIVE torna a camminare -->
+    <div class="card">
+      <b>LIVE</b>
+      <div class="grid">
+        <div>Reps</div><div id="liveReps">—</div>
+        <div>TUT</div><div id="liveTut">—</div>
+        <div>Fase</div><div id="livePhase">—</div>
+      </div>
+      <div class="muted" style="margin-top:8px">Questi valori si aggiornano durante il set.</div>
+    </div>
+
+    <!-- 3 cards (ultimo set) -->
     <div class="kpiRow">
       <div class="kpi">
         <div class="label">Reps (ultimo set)</div>
@@ -266,7 +282,7 @@
       </div>
 
       <div class="muted" style="margin-top:6px">
-        Click su un set per aprire il dettaglio (include anche campi “nascosti” per debug/ML).
+        Click su un set per aprire il dettaglio.
       </div>
 
       <div class="divider"></div>
@@ -299,13 +315,25 @@ const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
 const $ = (id)=>document.getElementById(id);
 
 /* ========================= App storage ========================= */
-const STORE_KEY = "salusmotion_sets_v3";        // bump version
-const STORE_SYNC = "salusmotion_last_sync_v1"; // timestamp (ms)
+const STORE_KEY = "salusmotion_sets_v3";
+const STORE_SYNC = "salusmotion_last_sync_v1";
 
 /* ========================= BLE state ========================= */
 let dev=null, server=null, svc=null, chTX=null, chRX=null;
 let meta=null;
 let dispOn=true;
+
+/* ========================= LIVE state ========================= */
+let live = { reps:null, tut_s:null, phase:null };
+function resetLive(){
+  live = { reps:null, tut_s:null, phase:null };
+  renderLive();
+}
+function renderLive(){
+  $("liveReps").textContent = (live.reps ?? "—");
+  $("liveTut").textContent  = (live.tut_s==null) ? "—" : fmtS(live.tut_s);
+  $("livePhase").textContent = (live.phase ?? "—");
+}
 
 /* ========================= Debug ========================= */
 $("dbgToggle").addEventListener("change",()=>{
@@ -324,11 +352,11 @@ let lastSet = pickLastSet(sets);
 
 /* ========================= RAW download state ========================= */
 let rawList = [];
-let dl = null;     // {name,size,got,parts:Uint8Array[], timer}
-let dlAll = null;  // {queue:[...], idx, running, retriesLeft}
+let dl = null;
+let dlAll = null;
 
 /* ========================= LOG sync state ========================= */
-let logDl = null;  // {parts:Uint8Array[], size:number, got:number}
+let logDl = null;
 let logSyncInFlight = false;
 let logSyncQueued = false;
 
@@ -341,7 +369,6 @@ function nowEpoch(){ return Math.floor(Date.now()/1000); }
 function isConnected(){
   return !!(dev && dev.gatt && dev.gatt.connected && chRX && chTX);
 }
-
 function setConn(on){
   $("connBadge").textContent = on ? "CONNECTED" : "DISCONNECTED";
   $("connBadge").className = "badge " + (on ? "ok" : "");
@@ -349,7 +376,6 @@ function setConn(on){
   $("quickConn").className = "badge " + (on ? "ok" : "");
   $("tabWkt").disabled = !on;
 }
-
 function setQuickExercise(name){
   $("quickEx").textContent = name || "—";
 }
@@ -486,6 +512,8 @@ function hardResetUiDisconnected(){
   $("rtcStatus").textContent = "RTC: —";
 
   setLogStatus("DISCONNECTED", 0);
+
+  resetLive();
   resetRxBuffer();
 }
 
@@ -741,15 +769,10 @@ function fmt0(x, suf=""){
   return Math.round(n) + suf;
 }
 function fmtWhen(s){
-  // prefer ts_end (epoch seconds), fallback ms (local)
   const te = Number(s?.ts_end || 0);
-  if(Number.isFinite(te) && te > 1000000000){
-    return new Date(te*1000).toLocaleString();
-  }
+  if(Number.isFinite(te) && te > 1000000000) return new Date(te*1000).toLocaleString();
   const ms = Number(s?.ms || 0);
-  if(Number.isFinite(ms) && ms > 1000000000){
-    return new Date(ms).toLocaleString();
-  }
+  if(Number.isFinite(ms) && ms > 1000000000) return new Date(ms).toLocaleString();
   return "—";
 }
 function fatigueClass(vl){
@@ -841,16 +864,16 @@ function renderHistory(){
 
     div.appendChild(left);
     div.appendChild(right);
-
     div.onclick = ()=>openDetail(s);
 
     list.appendChild(div);
   }
 }
 
+/* ✅ DETTAGLIO UTENTE: SOLO QUELLO CHE SERVE */
 function openDetail(s){
   $("modal").classList.add("open");
-  $("mTitle").textContent = `Set id ${s.id ?? "—"} · ${s.exercise || "—"}`;
+  $("mTitle").textContent = `${s.exercise || "—"} · ${fmtWhen(s)}`;
   const g = $("mGrid");
   g.innerHTML = "";
 
@@ -862,33 +885,11 @@ function openDetail(s){
     g.appendChild(a); g.appendChild(b);
   };
 
-  // "utente"
   add("Esercizio", s.exercise || "—");
   add("Data/Ora", fmtWhen(s));
   add("Reps", String(s.reps ?? "—"));
   add("TUT", fmtS(s.tut_s));
   add("Fatica (velLoss)", fmt1(s.velLoss, "%"));
-
-  // "debug / avanzato" (mascherato qui dentro)
-  add("Quality", fmt0(s.quality));
-  add("Dirty", fmt1(s.dirty, "%"));
-  add("RomLoss", fmt1(s.romLoss, "%"));
-  add("RIR est / target", (s.rir_est==null || s.target_rir==null) ? "—" : `${s.rir_est} / ${s.target_rir} (${s.hit_target ? "hit" : "no"})`);
-  add("RAW file", s.raw || "—");
-  add("ID", String(s.id ?? "—"));
-  add("ms", String(s.ms ?? "—"));
-  add("ts_end", String(s.ts_end ?? "—"));
-  add("exIndex", String(s.exIndex ?? s.exindex ?? "—"));
-
-  if(s.thr && typeof s.thr === "object"){
-    add("thr.hi", String(s.thr.hi ?? "—"));
-    add("thr.lo", String(s.thr.lo ?? "—"));
-  }
-  if(s.bat && typeof s.bat === "object"){
-    add("bat.pct", String(s.bat.pct ?? "—"));
-    add("bat.v", String(s.bat.v ?? "—"));
-    add("bat.chg", String(s.bat.chg ?? "—"));
-  }
 }
 
 $("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
@@ -909,6 +910,7 @@ function downloadText(filename, text, mime="application/json"){
 function renderAllWorkout(){
   renderTopKPIs();
   renderHistory();
+  renderLive();
   const last = getLastSyncMs();
   if(last) setLogStatus("OK · " + fmtTime(last), 100);
   else setLogStatus("mai", 0);
@@ -989,11 +991,12 @@ function handleObj(obj, raw){
     return;
   }
 
-   if(obj.type === "time_set"){
-   dbgRX(raw);
-   // Mostralo da qualche parte, anche solo nel log status:
-   setLogStatus(`TIME OK · ${obj.utc || obj.epoch}`, 100);
-   return;
+  /* ✅ TIME ACK */
+  if(obj.type === "time_set"){
+    // FW stampa UTC: ok
+    $("rtcStatus").textContent = "RTC: OK";
+    setLogStatus(`TIME OK · ${obj.utc || obj.epoch || ""}`, 100);
+    return;
   }
 
   if(obj.type==="meta"){
@@ -1012,11 +1015,18 @@ function handleObj(obj, raw){
     $("btnDisp").disabled=false;
     setDispUI(typeof obj.disp === "boolean" ? obj.disp : true);
 
-    // enable manual time sync
     $("btnSyncTime").disabled = false;
 
-    // auto: sync LOG soon (after meta)
     requestLogSync("auto");
+    return;
+  }
+
+  // ---------- WORKOUT: LIVE ----------
+  if(obj.type==="live"){
+    live.reps  = (obj.reps  ?? live.reps);
+    live.tut_s = (obj.tut_s ?? live.tut_s);
+    live.phase = (obj.phase ?? live.phase);
+    renderLive();
     return;
   }
 
@@ -1102,8 +1112,6 @@ function handleObj(obj, raw){
   // ---------- WORKOUT: SET ----------
   if(obj.type==="set"){
     const s = {...obj};
-
-    // prefer ts_end from FW; if missing keep ms
     if(s.ms == null) s.ms = nowMs();
     if(s.exIndex == null && s.exindex != null) s.exIndex = s.exindex;
 
@@ -1231,7 +1239,6 @@ function handleObj(obj, raw){
 
 /* ========================= UI actions ========================= */
 
-// Connect
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
 
@@ -1251,6 +1258,8 @@ $("btnConnect").onclick = async ()=>{
     $("btnDisp").disabled=true;
     $("dispBadge").textContent="—";
     setQuickExercise("—");
+
+    resetLive();
 
     $("rtcStatus").textContent = "RTC: sync…";
     $("btnSyncTime").disabled = true;
@@ -1277,13 +1286,11 @@ $("btnConnect").onclick = async ()=>{
     $("btnMeta").disabled=false;
     setConn(true);
 
-    // HELLO + META
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
 
     // ✅ SET_TIME (UTC epoch seconds)
-    const epoch = Math.floor(Date.now() / 1000);
-    await writeCmd({ cmd:"SET_TIME", epoch });
+    await writeCmd({ cmd:"SET_TIME", epoch: nowEpoch() });
 
   }catch(e){
     console.error(e);
@@ -1292,10 +1299,8 @@ $("btnConnect").onclick = async ()=>{
   }
 };
 
-// META manual
 $("btnMeta").onclick = async ()=>{ try{ await writeCmd({cmd:"META"}); }catch(e){} };
 
-// Sync time manual
 $("btnSyncTime").onclick = async ()=>{
   try{
     $("rtcStatus").textContent = "RTC: sync…";
@@ -1303,7 +1308,6 @@ $("btnSyncTime").onclick = async ()=>{
   }catch(e){}
 };
 
-// RAW list
 $("btnRawInfo").onclick = async ()=>{
   try{
     dlResetUI();
@@ -1312,7 +1316,6 @@ $("btnRawInfo").onclick = async ()=>{
   }catch(e){}
 };
 
-// RAW download one
 $("btnRawDl").onclick = async ()=>{
   try{
     dlResetUI();
@@ -1322,7 +1325,6 @@ $("btnRawDl").onclick = async ()=>{
   }catch(e){}
 };
 
-// RAW download all
 $("btnRawDlAll").onclick = async ()=>{
   try{
     dlResetUI();
@@ -1330,7 +1332,6 @@ $("btnRawDlAll").onclick = async ()=>{
   }catch(e){}
 };
 
-// RAW clear
 $("btnRawClear").onclick = async ()=>{
   try{
     const x = prompt("Scrivi CLEAR per cancellare TUTTI i RAW dal device:");
@@ -1341,7 +1342,6 @@ $("btnRawClear").onclick = async ()=>{
   }catch(e){}
 };
 
-// Exercise set
 $("btnSetEx").onclick = async ()=>{
   try{
     const i = Number($("exSelect").value);
@@ -1355,7 +1355,6 @@ $("btnSetEx").onclick = async ()=>{
   }catch(e){}
 };
 
-// Exercise change UI only
 $("exSelect").onchange = ()=>{
   if(meta && Array.isArray(meta.exercises)){
     const i = Number($("exSelect").value);
@@ -1365,7 +1364,6 @@ $("exSelect").onchange = ()=>{
   }
 };
 
-// Display toggle
 $("btnDisp").onclick = async ()=>{
   try{
     await writeCmd({cmd:"DISP", on: !dispOn});
@@ -1373,10 +1371,8 @@ $("btnDisp").onclick = async ()=>{
   }catch(e){}
 };
 
-// LOG sync (manual)
 $("btnLogSync").onclick = ()=> requestLogSync("manual");
 
-// LOG clear (device)
 $("btnLogClear").onclick = async ()=>{
   try{
     const x = prompt("Scrivi CLEAR per cancellare il LOG dal device:");
@@ -1385,7 +1381,6 @@ $("btnLogClear").onclick = async ()=>{
   }catch(e){}
 };
 
-// FORMAT FS
 $("btnFormat").onclick = async ()=>{
   try{
     const x = prompt("Scrivi FORMAT per cancellare TUTTO il filesystem:");
@@ -1394,19 +1389,33 @@ $("btnFormat").onclick = async ()=>{
   }catch(e){}
 };
 
-// Export JSON/CSV + clear browser history
+/* ✅ EXPORT: include data/ora */
+function exportSetsForJson(){
+  return sets.map(s=>({
+    ...s,
+    date_time: fmtWhen(s) // <-- campo richiesto
+  }));
+}
+
 $("btnExportJson").onclick = ()=>{
-  downloadText("salusmotion_sets.json", JSON.stringify(sets, null, 2), "application/json");
+  downloadText("salusmotion_sets.json", JSON.stringify(exportSetsForJson(), null, 2), "application/json");
 };
 
 $("btnExportCsv").onclick = ()=>{
-  const cols = ["id","ts_end","ms","exercise","exIndex","reps","tut_s","velLoss","quality","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
+  // CSV DEV: metto data/ora IN CHIARO
+  const cols = ["date_time","id","ts_end","ms","exercise","exIndex","reps","tut_s","velLoss","quality","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
   const escCsv = (v)=>{
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
   };
   const lines = [cols.join(",")];
-  for(const s of sets) lines.push(cols.map(c=>escCsv(s[c])).join(","));
+  for(const s of sets){
+    const row = {
+      ...s,
+      date_time: fmtWhen(s)
+    };
+    lines.push(cols.map(c=>escCsv(row[c])).join(","));
+  }
   downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
 };
 
@@ -1425,6 +1434,7 @@ hardResetUiDisconnected();
 sets = loadSets();
 lastSet = pickLastSet(sets);
 renderAllWorkout();
+renderLive();
 </script>
 </body>
 </html>
