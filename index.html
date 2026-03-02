@@ -465,8 +465,9 @@ async function writeCmd(obj){
   dbgTX(s);
   await chRX.writeValue(new TextEncoder().encode(s));
 }
+const td = new TextDecoder("utf-8");
 function onNotify(ev){
-  const chunk = new TextDecoder().decode(ev.target.value);
+  const chunk = td.decode(ev.target.value, { stream:true });
   feedText(chunk);
 }
 
@@ -533,21 +534,35 @@ async function onDisconnected(){
 /* ========================= JSON line stream parser ========================= */
 function feedText(str){
   lineBuf += str;
+
+  // evita crescita infinita
   if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
 
-  let idx;
-  while((idx = lineBuf.indexOf("\n")) >= 0){
-    const line = lineBuf.slice(0, idx).trim();
-    lineBuf = lineBuf.slice(idx+1);
+  while(true){
+    const idx = lineBuf.indexOf("\n");
+    if(idx < 0) break;
 
-    if(!line) continue;
+    const rawLine = lineBuf.slice(0, idx);      // NON trim qui
+    const rest    = lineBuf.slice(idx + 1);
+
+    const line = rawLine.trim();
+    if(!line){
+      lineBuf = rest;
+      continue;
+    }
 
     try{
       const obj = JSON.parse(line);
-      dbgRX(line);
+      dbgRX(line);                 // ok: parse riuscito
       handleObj(obj, line);
+      lineBuf = rest;              // consumata
     }catch(e){
-      dbgRX("LINE PARSE FAIL: " + line.slice(0,220));
+      // 🔥 QUI IL FIX: la riga era incompleta → NON buttarla
+      // rimetti tutto com’era e aspetta più dati
+      lineBuf = rawLine + "\n" + rest;
+      // opzionale: log
+      dbgRX("WAIT MORE (partial JSON): " + line.slice(0,120));
+      break;
     }
   }
 }
