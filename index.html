@@ -42,7 +42,6 @@
     }
     .tab.active{background:#111;color:#fff;border-color:#111}
 
-    /* KPI cards (Workout) */
     .kpiRow{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px}
     @media (max-width:900px){ .kpiRow{grid-template-columns:repeat(1,minmax(160px,1fr));} }
     .kpi{
@@ -69,7 +68,6 @@
 
     .divider{height:1px;background:var(--line);margin:10px 0}
 
-    /* Modal */
     .modal{
       position:fixed;inset:0;background:rgba(0,0,0,.35);
       display:none;align-items:center;justify-content:center;padding:16px;
@@ -83,14 +81,31 @@
     .sheetHeader .title{font-weight:950;font-size:16px}
     .sheetBody{margin-top:10px}
 
-    /* simple grid */
     .grid{display:grid;grid-template-columns:160px 1fr;gap:8px 10px;font-size:14px;margin-top:10px}
 
-    /* fatica badge */
     .fatBadge{display:inline-block;padding:4px 10px;border-radius:999px;font-weight:950;font-size:12px}
     .fatLow{background:#e8f8ee;color:var(--ok)}
     .fatMid{background:#fff7e6;color:var(--warn)}
     .fatHigh{background:#ffe9e9;color:var(--bad)}
+
+    #repChartWrap{
+      border:1px solid var(--line);
+      border-radius:16px;
+      padding:10px;
+      background:#fff;
+      margin-bottom:12px;
+    }
+    #repChart{
+      display:block;
+      width:100%;
+      height:90px;
+    }
+    .chartNote{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted);
+      font-weight:900;
+    }
   </style>
 </head>
 
@@ -109,7 +124,6 @@
     <span id="quickEx" class="pill">—</span>
   </div>
 
-  <!-- PAGE 1: SVILUPPO -->
   <div id="pageDev">
 
     <div class="card">
@@ -134,7 +148,6 @@
       </div>
     </div>
 
-    <!-- ✅ EXPORT SPOSTATO QUI -->
     <div class="card">
       <b>Export storico (browser)</b>
       <div class="row" style="margin-top:10px">
@@ -224,7 +237,6 @@
     </div>
   </div>
 
-  <!-- PAGE 2: WORKOUT (utente) -->
   <div id="pageWkt" class="hidden">
 
     <div class="card">
@@ -240,7 +252,6 @@
       </div>
     </div>
 
-    <!-- ✅ LIVE torna a camminare -->
     <div class="card">
       <b>LIVE</b>
       <div class="grid">
@@ -251,7 +262,6 @@
       <div class="muted" style="margin-top:8px">Questi valori si aggiornano durante il set.</div>
     </div>
 
-    <!-- 3 cards (ultimo set) -->
     <div class="kpiRow">
       <div class="kpi">
         <div class="label">Reps (ultimo set)</div>
@@ -300,30 +310,30 @@
         <button class="secondary miniBtn" id="btnCloseModal" type="button">Chiudi</button>
       </div>
       <div class="sheetBody">
+        <div id="repChartWrap">
+          <canvas id="repChart" height="90"></canvas>
+          <div class="chartNote">Curva rep-by-rep (speed proxy)</div>
+        </div>
+
         <div class="grid" id="mGrid"></div>
       </div>
     </div>
   </div>
 
 <script>
-/* ========================= UUID BLE ========================= */
 const UUID_SERVICE="b5f90001-6c3f-4c6b-a5d6-3adfe0c0b6a1";
-const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // notify
-const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1"; // write
+const UUID_TX="b5f90002-6c3f-4c6b-a5d6-3adfe0c0b6a1";
+const UUID_RX="b5f90003-6c3f-4c6b-a5d6-3adfe0c0b6a1";
 
-/* ========================= DOM helpers ========================= */
 const $ = (id)=>document.getElementById(id);
 
-/* ========================= App storage ========================= */
 const STORE_KEY = "salusmotion_sets_v3";
 const STORE_SYNC = "salusmotion_last_sync_v1";
 
-/* ========================= BLE state ========================= */
 let dev=null, server=null, svc=null, chTX=null, chRX=null;
 let meta=null;
 let dispOn=true;
 
-/* ========================= LIVE state ========================= */
 let live = { reps:null, tut_s:null, phase:null };
 function resetLive(){
   live = { reps:null, tut_s:null, phase:null };
@@ -335,7 +345,6 @@ function renderLive(){
   $("livePhase").textContent = (live.phase ?? "—");
 }
 
-/* ========================= Debug ========================= */
 $("dbgToggle").addEventListener("change",()=>{
   $("debugCard").classList.toggle("hidden", !$("dbgToggle").checked);
 });
@@ -346,21 +355,17 @@ function dbgLine(prefix, s){
 const dbgTX = (s)=>dbgLine("TX:", s);
 const dbgRX = (s)=>dbgLine("RX:", s);
 
-/* ========================= Workout state ========================= */
 let sets = loadSets();
 let lastSet = pickLastSet(sets);
 
-/* ========================= RAW download state ========================= */
 let rawList = [];
 let dl = null;
 let dlAll = null;
 
-/* ========================= LOG sync state ========================= */
 let logDl = null;
 let logSyncInFlight = false;
 let logSyncQueued = false;
 
-/* ========================= Small utils ========================= */
 function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
 function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 function nowMs(){ return Date.now(); }
@@ -380,7 +385,6 @@ function setQuickExercise(name){
   $("quickEx").textContent = name || "—";
 }
 
-/* ========================= Battery UI ========================= */
 function voltFromMaybeMv(v){
   const n = num(v);
   if(n===null) return null;
@@ -410,7 +414,6 @@ function updateBattery(bat){
   $("batBadge").className="badge "+lab.c;
 }
 
-/* ========================= Display UI ========================= */
 function setDispUI(on){
   dispOn = !!on;
   $("dispBadge").textContent = dispOn ? "ON" : "OFF";
@@ -418,7 +421,6 @@ function setDispUI(on){
   $("btnDisp").textContent = dispOn ? "Schermo OFF" : "Schermo ON";
 }
 
-/* ========================= Exercises UI ========================= */
 function fillExercises(exercises, exIndex){
   const sel = $("exSelect");
   sel.innerHTML = "";
@@ -442,7 +444,6 @@ function fillExercises(exercises, exIndex){
   setQuickExercise(cur);
 }
 
-/* ========================= Tabs ========================= */
 function showPage(which){
   const isWkt = (which === "wkt");
   $("pageDev").classList.toggle("hidden", isWkt);
@@ -458,7 +459,6 @@ $("tabWkt").onclick = ()=>{
   if(isConnected()) ensureLogSyncedSoon();
 };
 
-/* ========================= BLE I/O ========================= */
 async function writeCmd(obj){
   if(!isConnected()) throw new Error("BLE not connected");
   const s = JSON.stringify(obj);
@@ -470,7 +470,6 @@ function onNotify(ev){
   feedText(chunk);
 }
 
-/* ========================= Reset/disconnect ========================= */
 let lineBuf = "";
 function resetRxBuffer(){ lineBuf = ""; }
 
@@ -530,7 +529,6 @@ async function onDisconnected(){
   hardResetUiDisconnected();
 }
 
-/* ========================= JSON line stream parser ========================= */
 function feedText(str){
   lineBuf += str;
   if(lineBuf.length > 200000) lineBuf = lineBuf.slice(-50000);
@@ -552,7 +550,6 @@ function feedText(str){
   }
 }
 
-/* ========================= RAW helpers ========================= */
 function setRawStatus(t){ $("rawStatus").textContent=t; }
 function setRawBar(p){ $("rawBar").style.width = (clamp(p,0,100) + "%"); }
 function dlResetUI(){ setRawBar(0); setRawStatus("—"); }
@@ -670,7 +667,6 @@ function advanceAll(){
   downloadOne(dlAll.queue[dlAll.idx], true).catch(()=>{});
 }
 
-/* ========================= LOG sync helpers ========================= */
 function setLogStatus(text, pct){
   $("logStatus").textContent = text;
   $("logBar").style.width = (clamp(pct||0,0,100) + "%");
@@ -727,7 +723,6 @@ function finishLogSyncAndMaybeRepeat(){
   }
 }
 
-/* ========================= Workout storage + UI ========================= */
 function loadSets(){
   try{
     const s = localStorage.getItem(STORE_KEY);
@@ -794,7 +789,6 @@ function rirText(rir){
 
 function velocityText(s){
   if(s && s.velClass) return String(s.velClass);
-
   const vl = num(s?.velLoss);
   if(vl===null) return "—";
   if(vl < 15) return "bassa";
@@ -805,14 +799,65 @@ function velocityText(s){
 function fmtVel(x){
   const n = num(x);
   if(n===null) return "—";
-  return n.toFixed(2) + " m/s";
+  return n.toFixed(2);
 }
 
 function yesNo(v){
   if(v === true) return "Sì";
   if(v === false) return "No";
   return "—";
-} 
+}
+
+function drawRepSparkline(values){
+  const c = $("repChart");
+  if(!c) return;
+  const ctx = c.getContext("2d");
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth || 700;
+  const h = 90;
+
+  c.width = Math.floor(w * dpr);
+  c.height = Math.floor(h * dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  ctx.clearRect(0,0,w,h);
+
+  if(!Array.isArray(values) || values.length < 2){
+    ctx.fillStyle = "#6b7280";
+    ctx.font = "12px system-ui";
+    ctx.fillText("Nessun dato rep-by-rep", 8, 20);
+    return;
+  }
+
+  const pad = 10;
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const span = Math.max(maxV - minV, 1e-6);
+
+  const xAt = (i)=> pad + (i * (w - pad*2) / Math.max(values.length - 1, 1));
+  const yAt = (v)=> h - pad - ((v - minV) / span) * (h - pad*2);
+
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  values.forEach((v,i)=>{
+    const x = xAt(i);
+    const y = yAt(v);
+    if(i===0) ctx.moveTo(x,y);
+    else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = "#111";
+  values.forEach((v,i)=>{
+    const x = xAt(i);
+    const y = yAt(v);
+    ctx.beginPath();
+    ctx.arc(x,y,3,0,Math.PI*2);
+    ctx.fill();
+  });
+}
 
 function renderTopKPIs(){
   const s = pickLastSet(sets);
@@ -832,7 +877,7 @@ function renderTopKPIs(){
   $("kTut").textContent  = fmtS(s.tut_s);
   $("kFat").textContent  = fmt0(s.velLoss, "%");
 
-  const ctx = `${s.exercise || "—"} · ${fmtWhen(s)} · Vmean ${fmtVel(s.v_mean)} · RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
+  const ctx = `${s.exercise || "—"} · ${fmtWhen(s)} · Speed ${fmtVel(s.v_mean)} · RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
   $("kCtx").textContent = ctx;
 
   const f = fatigueClass(s.velLoss);
@@ -871,10 +916,10 @@ function renderHistory(){
 
     const metaLine = document.createElement("div");
     metaLine.className="meta";
-   metaLine.textContent =
-     `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · ` +
-     `Vmean ${fmtVel(s.v_mean)} · Fatica ${fmt0(s.velLoss,"%")} · ` +
-     `RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
+    metaLine.textContent =
+      `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · ` +
+      `Speed ${fmtVel(s.v_mean)} · Fatica ${fmt0(s.velLoss,"%")} · ` +
+      `RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
 
     left.appendChild(title);
     left.appendChild(metaLine);
@@ -904,12 +949,17 @@ function renderHistory(){
   }
 }
 
-/* ✅ DETTAGLIO UTENTE: SOLO QUELLO CHE SERVE */
 function openDetail(s){
   $("modal").classList.add("open");
   $("mTitle").textContent = `${s.exercise || "—"} · ${fmtWhen(s)}`;
   const g = $("mGrid");
   g.innerHTML = "";
+
+  const repSpeed = Array.isArray(s.rep_speed)
+    ? s.rep_speed.map(Number).filter(Number.isFinite)
+    : [];
+
+  drawRepSparkline(repSpeed);
 
   const add = (k,v)=>{
     const a = document.createElement("div");
@@ -925,25 +975,17 @@ function openDetail(s){
   add("Reps", String(s.reps ?? "—"));
   add("TUT", fmtS(s.tut_s));
 
-  add("Best rep velocity", fmtVel(s.v_best));
-  add("Velocità media concentrica", fmtVel(s.v_mean));
-  add("Velocità ultima rep", fmtVel(s.v_last));
+  add("Best rep speed", fmtVel(s.v_best));
+  add("Speed media", fmtVel(s.v_mean));
+  add("Speed ultima rep", fmtVel(s.v_last));
   add("Velocity class", velocityText(s));
 
   add("Fatica (velLoss)", fmt1(s.velLoss, "%"));
   add("RIR estimate", String(s.rir_est ?? "—"));
   add("Quality label", rirText(s.rir_est));
 
-  add("Quality score", fmt1(s.quality, ""));
-  add("Dirty", fmt1(s.dirty, "%"));
-  add("ROM loss", fmt1(s.romLoss, "%"));
-
   add("Target RIR", String(s.target_rir ?? "—"));
   add("Target hit", yesNo(s.hit_target));
-
-  add("Peak count", String(s.peakCount ?? "—"));
-  add("Peaks mean", (num(s.peaksMean)===null ? "—" : Number(s.peaksMean).toFixed(3)));
-  add("Peaks std", (num(s.peaksStd)===null ? "—" : Number(s.peaksStd).toFixed(3)));
 
   add("RAW file", s.raw || "—");
 }
@@ -972,7 +1014,6 @@ function renderAllWorkout(){
   else setLogStatus("mai", 0);
 }
 
-/* ========================= Merge LOG from device into browser sets ========================= */
 function fingerprintSet(s){
   return [
     s.id ?? "",
@@ -1035,7 +1076,6 @@ function mergeSetsFromDevice(newArr){
   return {added, total:sets.length};
 }
 
-/* ========================= Incoming objects ========================= */
 function handleObj(obj, raw){
   if(!obj) return;
 
@@ -1047,9 +1087,7 @@ function handleObj(obj, raw){
     return;
   }
 
-  /* ✅ TIME ACK */
   if(obj.type === "time_set"){
-    // FW stampa UTC: ok
     $("rtcStatus").textContent = "RTC: OK";
     setLogStatus(`TIME OK · ${obj.utc || obj.epoch || ""}`, 100);
     return;
@@ -1077,7 +1115,6 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: LIVE ----------
   if(obj.type==="live"){
     live.reps  = (obj.reps  ?? live.reps);
     live.tut_s = (obj.tut_s ?? live.tut_s);
@@ -1086,7 +1123,6 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- LOG protocol ----------
   if(obj.type==="log_err"){
     setLogStatus("LOG err: " + (obj.msg || "unknown"), 0);
     logDl = null;
@@ -1165,7 +1201,6 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- WORKOUT: SET ----------
   if(obj.type==="set"){
     const s = {...obj};
     if(s.ms == null) s.ms = nowMs();
@@ -1180,7 +1215,6 @@ function handleObj(obj, raw){
     return;
   }
 
-  // ---------- RAW protocol ----------
   if(obj.type==="raw_info"){
     rawList = Array.isArray(obj.files) ? obj.files : [];
     rawList.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
@@ -1293,8 +1327,6 @@ function handleObj(obj, raw){
   }
 }
 
-/* ========================= UI actions ========================= */
-
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
 
@@ -1344,9 +1376,7 @@ $("btnConnect").onclick = async ()=>{
 
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
-
-    // ✅ SET_TIME (UTC epoch seconds)
-    await writeCmd({ cmd:"SET_TIME", epoch: nowEpoch() });
+    await writeCmd({cmd:"SET_TIME", epoch: nowEpoch()});
 
   }catch(e){
     console.error(e);
@@ -1445,11 +1475,10 @@ $("btnFormat").onclick = async ()=>{
   }catch(e){}
 };
 
-/* ✅ EXPORT: include data/ora */
 function exportSetsForJson(){
   return sets.map(s=>({
     ...s,
-    date_time: fmtWhen(s) // <-- campo richiesto
+    date_time: fmtWhen(s)
   }));
 }
 
@@ -1467,25 +1496,20 @@ $("btnExportCsv").onclick = ()=>{
     "exIndex",
     "reps",
     "tut_s",
-
     "v_best",
     "v_mean",
     "v_last",
     "velClass",
-
     "velLoss",
     "quality",
     "romLoss",
     "dirty",
-
     "rir_est",
     "target_rir",
     "hit_target",
-
     "peakCount",
     "peaksMean",
     "peaksStd",
-
     "raw"
   ];
 
@@ -1516,7 +1540,6 @@ $("btnClearHistory").onclick = ()=>{
   renderAllWorkout();
 };
 
-/* ========================= init ========================= */
 setConn(false);
 hardResetUiDisconnected();
 sets = loadSets();
