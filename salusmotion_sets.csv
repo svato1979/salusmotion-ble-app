@@ -783,6 +783,37 @@ function fatigueClass(vl){
   return {t:"Alta", cls:"fatHigh"};
 }
 
+function rirText(rir){
+  const n = num(rir);
+  if(n===null) return "—";
+  if(n === 0) return "excellent";
+  if(n === 1) return "good";
+  if(n === 2) return "ok";
+  return "easy";
+}
+
+function velocityText(s){
+  if(s && s.velClass) return String(s.velClass);
+
+  const vl = num(s?.velLoss);
+  if(vl===null) return "—";
+  if(vl < 15) return "bassa";
+  if(vl < 35) return "moderata";
+  return "alta";
+}
+
+function fmtVel(x){
+  const n = num(x);
+  if(n===null) return "—";
+  return n.toFixed(2) + " m/s";
+}
+
+function yesNo(v){
+  if(v === true) return "Sì";
+  if(v === false) return "No";
+  return "—";
+} 
+
 function renderTopKPIs(){
   const s = pickLastSet(sets);
   lastSet = s;
@@ -801,7 +832,7 @@ function renderTopKPIs(){
   $("kTut").textContent  = fmtS(s.tut_s);
   $("kFat").textContent  = fmt0(s.velLoss, "%");
 
-  const ctx = `${s.exercise || "—"} · ${fmtWhen(s)}`;
+  const ctx = `${s.exercise || "—"} · ${fmtWhen(s)} · Vmean ${fmtVel(s.v_mean)} · RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
   $("kCtx").textContent = ctx;
 
   const f = fatigueClass(s.velLoss);
@@ -840,7 +871,10 @@ function renderHistory(){
 
     const metaLine = document.createElement("div");
     metaLine.className="meta";
-    metaLine.textContent = `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · Fatica ${fmt0(s.velLoss,"%")}`;
+   metaLine.textContent =
+     `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · ` +
+     `Vmean ${fmtVel(s.v_mean)} · Fatica ${fmt0(s.velLoss,"%")} · ` +
+     `RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
 
     left.appendChild(title);
     left.appendChild(metaLine);
@@ -887,9 +921,31 @@ function openDetail(s){
 
   add("Esercizio", s.exercise || "—");
   add("Data/Ora", fmtWhen(s));
+
   add("Reps", String(s.reps ?? "—"));
   add("TUT", fmtS(s.tut_s));
+
+  add("Best rep velocity", fmtVel(s.v_best));
+  add("Velocità media concentrica", fmtVel(s.v_mean));
+  add("Velocità ultima rep", fmtVel(s.v_last));
+  add("Velocity class", velocityText(s));
+
   add("Fatica (velLoss)", fmt1(s.velLoss, "%"));
+  add("RIR estimate", String(s.rir_est ?? "—"));
+  add("Quality label", rirText(s.rir_est));
+
+  add("Quality score", fmt1(s.quality, ""));
+  add("Dirty", fmt1(s.dirty, "%"));
+  add("ROM loss", fmt1(s.romLoss, "%"));
+
+  add("Target RIR", String(s.target_rir ?? "—"));
+  add("Target hit", yesNo(s.hit_target));
+
+  add("Peak count", String(s.peakCount ?? "—"));
+  add("Peaks mean", (num(s.peaksMean)===null ? "—" : Number(s.peaksMean).toFixed(3)));
+  add("Peaks std", (num(s.peaksStd)===null ? "—" : Number(s.peaksStd).toFixed(3)));
+
+  add("RAW file", s.raw || "—");
 }
 
 $("btnCloseModal").onclick = ()=>$("modal").classList.remove("open");
@@ -1402,13 +1458,44 @@ $("btnExportJson").onclick = ()=>{
 };
 
 $("btnExportCsv").onclick = ()=>{
-  // CSV DEV: metto data/ora IN CHIARO
-  const cols = ["date_time","id","ts_end","ms","exercise","exIndex","reps","tut_s","velLoss","quality","romLoss","dirty","rir_est","target_rir","hit_target","raw"];
+  const cols = [
+    "date_time",
+    "id",
+    "ts_end",
+    "ms",
+    "exercise",
+    "exIndex",
+    "reps",
+    "tut_s",
+
+    "v_best",
+    "v_mean",
+    "v_last",
+    "velClass",
+
+    "velLoss",
+    "quality",
+    "romLoss",
+    "dirty",
+
+    "rir_est",
+    "target_rir",
+    "hit_target",
+
+    "peakCount",
+    "peaksMean",
+    "peaksStd",
+
+    "raw"
+  ];
+
   const escCsv = (v)=>{
     const s = String(v ?? "");
     return /[",\n]/.test(s) ? `"${s.replaceAll('"','""')}"` : s;
   };
+
   const lines = [cols.join(",")];
+
   for(const s of sets){
     const row = {
       ...s,
@@ -1416,6 +1503,7 @@ $("btnExportCsv").onclick = ()=>{
     };
     lines.push(cols.map(c=>escCsv(row[c])).join(","));
   }
+
   downloadText("salusmotion_sets.csv", lines.join("\n"), "text/csv");
 };
 
