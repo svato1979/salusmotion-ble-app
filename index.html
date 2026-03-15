@@ -312,7 +312,7 @@
       <div class="sheetBody">
         <div id="repChartWrap">
           <canvas id="repChart" height="90"></canvas>
-          <div class="chartNote">Curva rep-by-rep (speed proxy)</div>
+          <div class="chartNote">Curva rep-by-rep (m/s)</div>
         </div>
 
         <div class="grid" id="mGrid"></div>
@@ -918,7 +918,7 @@ function renderHistory(){
     metaLine.className="meta";
     metaLine.textContent =
       `Reps ${s.reps ?? "—"} · TUT ${fmtS(s.tut_s)} · ` +
-      `Speed ${fmtVel(s.v_mean)} · Fatica ${fmt0(s.velLoss,"%")} · ` +
+      `Speed ${fmtVel(s.v_mean)} m/s · Fatica ${fmt0(s.velLoss,"%")} · ` +
       `RIR ${s.rir_est ?? "—"} (${rirText(s.rir_est)})`;
 
     left.appendChild(title);
@@ -975,9 +975,9 @@ function openDetail(s){
   add("Reps", String(s.reps ?? "—"));
   add("TUT", fmtS(s.tut_s));
 
-  add("Best rep speed", fmtVel(s.v_best));
-  add("Speed media", fmtVel(s.v_mean));
-  add("Speed ultima rep", fmtVel(s.v_last));
+  add("Best rep speed", fmtVel(s.v_best) + " m/s");
+  add("Speed media", fmtVel(s.v_mean) + " m/s");
+  add("Speed ultima rep", fmtVel(s.v_last) + " m/s");
   add("Velocity class", velocityText(s));
 
   add("Fatica (velLoss)", fmt1(s.velLoss, "%"));
@@ -1329,10 +1329,7 @@ function handleObj(obj, raw){
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
 
-  try{
-    autoSyncOnNextMeta = true;
-    lastAutoSyncMetaMs = 0;
-    
+  try{    
     meta=null;
 
     dlResetUI();
