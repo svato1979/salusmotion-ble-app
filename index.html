@@ -366,10 +366,6 @@ let logDl = null;
 let logSyncInFlight = false;
 let logSyncQueued = false;
 
-// auto-sync LOG solo sulla prima META dopo connect
-let autoSyncOnNextMeta = false;
-let lastAutoSyncMetaMs = 0;
-
 function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
 function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 function nowMs(){ return Date.now(); }
@@ -529,8 +525,6 @@ async function cleanupBle(){
   }catch(e){}
 }
 async function onDisconnected(){
-  autoSyncOnNextMeta = false;
-  lastAutoSyncMetaMs = 0;
   await cleanupBle();
   hardResetUiDisconnected();
 }
@@ -1117,14 +1111,7 @@ function handleObj(obj, raw){
 
   $("btnSyncTime").disabled = false;
 
-  const now = Date.now();
-  if (autoSyncOnNextMeta && (now - lastAutoSyncMetaMs > 1500)) {
-    autoSyncOnNextMeta = false;
-    lastAutoSyncMetaMs = now;
-    requestLogSync("auto");
-    }
-
-    return;
+  return;
   }
 
   if(obj.type==="live"){
@@ -1392,6 +1379,11 @@ $("btnConnect").onclick = async ()=>{
     await writeCmd({cmd:"HELLO"});
     await writeCmd({cmd:"META"});
     await writeCmd({cmd:"SET_TIME", epoch: nowEpoch()});
+
+    // auto-sync LOG una sola volta dopo la connessione
+    setTimeout(()=>{
+    requestLogSync("auto").catch(()=>{});
+  }, 500);
 
   }catch(e){
     console.error(e);
