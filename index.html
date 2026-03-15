@@ -366,6 +366,10 @@ let logDl = null;
 let logSyncInFlight = false;
 let logSyncQueued = false;
 
+// auto-sync LOG solo sulla prima META dopo connect
+let autoSyncOnNextMeta = false;
+let lastAutoSyncMetaMs = 0;
+
 function num(x){ const n = Number(x); return Number.isFinite(n) ? n : null; }
 function clamp(x,a,b){ return Math.max(a, Math.min(b,x)); }
 function nowMs(){ return Date.now(); }
@@ -525,6 +529,8 @@ async function cleanupBle(){
   }catch(e){}
 }
 async function onDisconnected(){
+  autoSyncOnNextMeta = false;
+  lastAutoSyncMetaMs = 0;
   await cleanupBle();
   hardResetUiDisconnected();
 }
@@ -1094,24 +1100,30 @@ function handleObj(obj, raw){
   }
 
   if(obj.type==="meta"){
-    meta = obj;
+  meta = obj;
 
-    $("btnRawInfo").disabled=false;
-    $("btnRawClear").disabled=false;
+  $("btnRawInfo").disabled=false;
+  $("btnRawClear").disabled=false;
 
-    $("btnLogSync").disabled=false;
-    $("btnLogClear").disabled=false;
+  $("btnLogSync").disabled=false;
+  $("btnLogClear").disabled=false;
 
-    $("btnFormat").disabled=false;
+  $("btnFormat").disabled=false;
 
-    fillExercises(obj.exercises || [], Number(obj.exIndex ?? 0));
+  fillExercises(obj.exercises || [], Number(obj.exIndex ?? 0));
 
-    $("btnDisp").disabled=false;
-    setDispUI(typeof obj.disp === "boolean" ? obj.disp : true);
+  $("btnDisp").disabled=false;
+  setDispUI(typeof obj.disp === "boolean" ? obj.disp : true);
 
-    $("btnSyncTime").disabled = false;
+  $("btnSyncTime").disabled = false;
 
+  const now = Date.now();
+  if (autoSyncOnNextMeta && (now - lastAutoSyncMetaMs > 1500)) {
+    autoSyncOnNextMeta = false;
+    lastAutoSyncMetaMs = now;
     requestLogSync("auto");
+    }
+
     return;
   }
 
@@ -1331,6 +1343,9 @@ $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
 
   try{
+    autoSyncOnNextMeta = true;
+    lastAutoSyncMetaMs = 0;
+    
     meta=null;
 
     dlResetUI();
