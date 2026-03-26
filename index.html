@@ -239,18 +239,20 @@
 
   <div id="pageWkt" class="hidden">
 
-    <div class="card">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <b>Workout</b>
-          <div class="muted">LIVE + ultimo set + storico (salvato nel browser).</div>
-        </div>
-      </div>
-
-      <div class="muted" style="margin-top:8px">
-        <span class="pill" id="syncMini">Sync: —</span>
-      </div>
+<div class="card">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <b>Workout</b>
+      <div class="muted">LIVE + ultimo set + storico (salvato nel browser).</div>
     </div>
+
+    <button id="btnSetToggle" type="button" disabled>Start/Stop Set</button>
+  </div>
+
+  <div class="muted" style="margin-top:8px">
+    <span class="pill" id="syncMini">Sync: —</span>
+  </div>
+</div>
 
     <div class="card">
       <b>LIVE</b>
@@ -497,6 +499,7 @@ function hardResetUiDisconnected(){
   $("btnLogClear").disabled=true;
 
   $("btnFormat").disabled=true;
+  $("btnSetToggle").disabled=true;
 
   $("exSelect").disabled=true;
   $("exSelect").innerHTML="";
@@ -1110,7 +1113,8 @@ function handleObj(obj, raw){
   setDispUI(typeof obj.disp === "boolean" ? obj.disp : true);
 
   $("btnSyncTime").disabled = false;
-
+  $("btnSetToggle").disabled = false;
+    
   return;
   }
 
@@ -1346,6 +1350,8 @@ $("btnConnect").onclick = async ()=>{
     $("dispBadge").textContent="—";
     setQuickExercise("—");
 
+    $("btnSetToggle").disabled = true;
+    
     resetLive();
 
     $("rtcStatus").textContent = "RTC: sync…";
@@ -1458,6 +1464,12 @@ $("btnDisp").onclick = async ()=>{
   try{
     await writeCmd({cmd:"DISP", on: !dispOn});
     setDispUI(!dispOn);
+  }catch(e){}
+};
+
+$("btnSetToggle").onclick = async ()=>{
+  try{
+    await writeCmd({cmd:"SET_TOGGLE"});
   }catch(e){}
 };
 
