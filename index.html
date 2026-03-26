@@ -513,6 +513,8 @@ function hardResetUiDisconnected(){
   $("btnSyncTime").disabled=true;
   $("rtcStatus").textContent = "RTC: —";
 
+  $("btnSetToggle").textContent = "Start/Stop Set";
+
   setLogStatus("DISCONNECTED", 0);
 
   resetLive();
@@ -1090,6 +1092,15 @@ function handleObj(obj, raw){
     return;
   }
 
+  if(obj.type==="state"){
+  if(obj.st === "REC"){
+    $("btnSetToggle").textContent = "Stop Set";
+  } else {
+    $("btnSetToggle").textContent = "Start/Stop Set";
+  }
+  return;
+}
+
   if(obj.type === "time_set"){
     $("rtcStatus").textContent = "RTC: OK";
     setLogStatus(`TIME OK · ${obj.utc || obj.epoch || ""}`, 100);
@@ -1332,6 +1343,7 @@ function handleObj(obj, raw){
 
 $("btnConnect").onclick = async ()=>{
   resetRxBuffer();
+  $("btnSetToggle").textContent = "Start/Stop Set";
 
   try{    
     meta=null;
